@@ -110,9 +110,10 @@ exports.register = async (req, res) => {
       
       res.cookie("token", accessToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production", // set to true in production (HTTPS)
-        sameSite: "none", // needed for cross-site cookies; adjust if not needed
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+        secure: false, // Change to false for local development with HTTP
+        sameSite: "lax", // Change from "none" to "lax" for local development
+        // path: "/", // Explicitly set the path
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
       });
     
       res.cookie("refreshToken", refreshToken, {
@@ -140,3 +141,36 @@ exports.register = async (req, res) => {
       res.status(500).json({ success: false, message: "Server error", error: error.message }); 
     } 
   };
+
+exports.verifyAuth = async(req, res) =>{
+    try{
+      const user = await User.findById(req.user.userId).select('-password')
+
+      if(!user){
+        return res.status(404).json({success: false, message: "User not Found"})
+      }
+
+      res.json({
+        success: true,
+        user:{
+          id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone,
+          role: user.role
+        }
+      })
+    }catch(error){
+      console.error("Auth verification error:", error)
+      res.status(500).json({success: false, message: "Server Error"})
+    }
+
+  };
+
+  // Logout
+  exports.logout = (req, res)=>{
+    res.clearCookie('token');
+    res.clearCookie('refreshToken');
+    res.json({success: true, message: "Logged out successfully"})
+  }

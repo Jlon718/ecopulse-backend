@@ -1,6 +1,7 @@
 const express = require("express");
 const { body } = require("express-validator");
-const { register, login } = require("../controllers/authController");
+const { register, login, verifyAuth, logout } = require("../controllers/authController");
+const authMiddleware = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
@@ -38,5 +39,7 @@ router.post("/logout", (req, res) => {
     message: "Logged out successfully. Please remove the token on the client side.",
   });
 });
+
+router.get('/verify', authMiddleware, verifyAuth)
 
 module.exports = router;
