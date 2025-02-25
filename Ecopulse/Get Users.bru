@@ -1,0 +1,15 @@
+meta {
+  name: Get Users
+  type: http
+  seq: 5
+}
+
+get {
+  url: http://localhost:5000/api/auth/users
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2N2JkYTEyZDdkMmFiYzkwMzc3ZWNhYmYiLCJpYXQiOjE3NDA0OTMyNzAsImV4cCI6MTc0MDQ5Njg3MH0.iEn9Gtv9sawMi2nGgo1zf7nstaWEq2GAJzHDw91z3Bw
+}

@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "start": "concurrently \"npx nodemon server.js\" \"python manage.py runserver\""
+  },
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "console-table-printer": "^2.12.1",
@@ -11,5 +14,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.13.1",
     "mongoose": "^8.10.1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   }
 }
