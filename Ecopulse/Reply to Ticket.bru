@@ -1,0 +1,19 @@
+meta {
+  name: Reply to Ticket
+  type: http
+  seq: 13
+}
+
+post {
+  url: http://localhost:5000/api/ticket/67c187972b6fb2d6d7fb0954/reply
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "content": "Hi there Greetings This is a reply to the ticket from Bruno."
+  }
+  
+  
+}

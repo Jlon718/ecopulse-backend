@@ -3,78 +3,92 @@ const bcrypt = require("bcryptjs");
 const { validationResult } = require("express-validator");
 const generateTokens = require("../utils/token");
 const jwt = require('jsonwebtoken');
+const admin = (require('../firebase/firebase'));
 
 
 
 exports.register = async (req, res) => {
   try {
-    console.log("Line 1");
-    console.log("Received request body:", req.body);
-    console.log("Line 3");
-
-    // Destructure all fields from request body, including role
-    const { firstName, lastName, email, password, phone, role } = req.body;
-    console.log("Line 6 - After destructuring:", { firstName, lastName, email, phone, role });
-
+    console.log("Starting registration process...");
+    
+    // 1. Validate request body
+    const { firstName, lastName, email, password, phone } = req.body;
+    
     if (!firstName || !lastName || !email || !password) {
-      console.log("Line 9 - Missing required fields");
-      return res.status(400).json({ message: "All fields are required" });
+      return res.status(400).json({ 
+        success: false, 
+        message: "All fields are required" 
+      });
     }
 
-    console.log("Line 13");
-    // Check if user exists
+    // 2. Check if user exists in MongoDB
     const existingUser = await User.findOne({ email });
-    console.log("Line 15 - Existing user check:", existingUser ? true : false);
-
     if (existingUser) {
-      console.log("Line 17 - User exists");
-      return res.status(400).json({ success: false, message: "User with this email already exists" });
+      return res.status(400).json({ 
+        success: false, 
+        message: "User with this email already exists" 
+      });
     }
 
-    console.log("Line 21");
-    const hashedPassword = await bcrypt.hash(password, 10);
-    console.log("Line 23 - Password hashed");
+    // 3. Create user in Firebase
+    try {
+      const firebaseUser = await admin.auth().createUser({
+        email: email,
+        password: password,
+        displayName: `${firstName} ${lastName}`
+      });
+      console.log("Firebase user created:", firebaseUser.uid);
 
-    // Create new user with all fields from request
-    console.log("Line 26 - About to create user");
-    const user = new User({
-      firstName,
-      lastName,
-      email,
-      password: hashedPassword,
-      phone,
-      // Don't use the spread operator for now to simplify
-      role: role || undefined // This will fall back to schema default if undefined
-    });
+      // 4. Hash password for MongoDB
+      const hashedPassword = await bcrypt.hash(password, 10);
 
-    console.log("Line 36 - User object created:", user);
-    await user.save();
-    console.log("Line 38 - User saved");
+      // 5. Create user in MongoDB with Firebase UID
+      const user = new User({
+        firstName,
+        lastName,
+        email,
+        password: hashedPassword,
+        phone,
+        googleId: firebaseUser.uid // Store Firebase UID
+      });
 
-    // Generate tokens using the utility function
-    const { accessToken } = generateTokens(user, res);
-    console.log("Line 43 - Tokens created");
+      await user.save();
+      console.log("MongoDB user saved");
 
-    console.log("Line 45 - About to send response");
-    res.status(201).json({
-      success: true,
-      message: "User registered successfully",
-      user: {
-        id: user._id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        role: user.role,
-        phone: user.phone || ""
-      },
-      token: accessToken
-    });
-    console.log("Line 57 - Response sent");
+      // 6. Generate JWT token
+      const { accessToken } = generateTokens(user, res);
+
+      // 7. Send success response
+      res.status(201).json({
+        success: true,
+        message: "User registered successfully",
+        user: {
+          id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          role: user.role,
+          phone: user.phone || ""
+        },
+        token: accessToken
+      });
+    } catch (firebaseError) {
+      console.error("Firebase user creation failed:", firebaseError);
+      // If Firebase creation fails, send error response
+      return res.status(500).json({
+        success: false,
+        message: "Registration failed",
+        error: firebaseError.message
+      });
+    }
 
   } catch (error) {
     console.error("Registration Error:", error);
-    console.error("Error occurred at line:", new Error().stack);
-    res.status(500).json({ success: false, message: "Server error", error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error", 
+      error: error.message 
+    });
   }
 };
 
@@ -213,3 +227,103 @@ exports.logout = (req, res) => {
   
   res.json({ success: true, message: "Logged out successfully" })
 }
+
+
+exports.googleSignIn = async (req, res) => {
+  try {
+    console.log("Google Sign-In request received");
+    
+    // Extract data from request body sent by the frontend
+    const { idToken, email, displayName, photoURL, uid } = req.body;
+    
+    if (!idToken || !email) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required information"
+      });
+    }
+    
+    // Verify Firebase token
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(idToken);
+      
+      // Verify that the token belongs to the correct user
+      if (decodedToken.uid !== uid) {
+        throw new Error("Token doesn't match user");
+      }
+    } catch (error) {
+      console.error("Firebase token verification failed:", error);
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired token"
+      });
+    }
+    
+    // Check if user exists
+    let user = await User.findOne({ email });
+    
+    if (user) {
+      // User exists, update Google ID if not already set
+      if (!user.googleId) {
+        user.googleId = uid;
+        user.profilePicture = photoURL || user.profilePicture;
+        await user.save();
+      }
+    } else {
+      // User doesn't exist, create new user
+      // Parse the display name into first and last name
+      let firstName = displayName || "Google";
+      let lastName = "User";
+      
+      if (displayName && displayName.includes(' ')) {
+        const nameParts = displayName.split(' ');
+        firstName = nameParts[0];
+        lastName = nameParts.slice(1).join(' ');
+      }
+      
+      user = new User({
+        firstName,
+        lastName,
+        email,
+        googleId: uid,
+        profilePicture: photoURL,
+        // No password needed for Google users
+      });
+      
+      await user.save();
+    }
+    
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+    
+    // Generate tokens
+    const { accessToken } = generateTokens(user, res);
+    
+    // Return user data and token
+    res.json({
+      success: true,
+      message: "Google sign-in successful",
+      user: {
+        id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone || "",
+        role: user.role,
+        profilePicture: user.profilePicture,
+        lastLogin: user.lastLogin,
+        accessToken
+      }
+    });
+    
+  } catch (error) {
+    console.error("Google Sign-In Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+};

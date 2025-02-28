@@ -1,10 +1,10 @@
 const express = require("express");
 const { body } = require("express-validator");
-const { register, login, verifyAuth, logout} = require("../controllers/authController");
-const {getAllUsers, updateUserRole} = require("../controllers/userController")
+const { register, login, verifyAuth, logout, googleSignIn } = require("../controllers/authController");
+const { getAllUsers, updateUserRole, } = require("../controllers/userController");
 
 const authMiddleware = require("../middleware/authMiddleware");
-const adminMiddleware = require("../middleware/adminMiddleware")
+const adminMiddleware = require("../middleware/adminMiddleware");
 const router = express.Router();
 
 router.post(
@@ -27,6 +27,8 @@ router.post(
   login
 );
 
+// Google Authentication endpoint
+router.post("/google-signin", googleSignIn);
 
 router.post("/logout", (req, res) => {
   
@@ -42,7 +44,8 @@ router.post("/logout", (req, res) => {
   });
 });
 
-router.get('/verify',  verifyAuth)
-router.get('/users', getAllUsers)
+router.get('/verify', verifyAuth);
+router.get('/users', getAllUsers);
 router.put('/users/:userId/role', authMiddleware, adminMiddleware, updateUserRole);
+
 module.exports = router;

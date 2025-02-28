@@ -1,0 +1,25 @@
+meta {
+  name: Create New Ticket
+  type: http
+  seq: 9
+}
+
+post {
+  url: http://localhost:5000/api/ticket
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2N2JlYzBhNGQyMDczY2UyZDA2YWU1NzAiLCJmaXJzdE5hbWUiOiJ1c2VyIiwibGFzdE5hbWUiOiIyIiwiZW1haWwiOiJsZXN0ZXJpcHVsYW4xOEBnbWFpbC5jb20iLCJwaG9uZSI6IiIsInJvbGUiOiJ1c2VyIiwiaWF0IjoxNzQwNzM1ODQ0LCJleHAiOjE3NDA3Mzk0NDR9.S_sBFlBIAtKjUbkds03F4e9hGqj0Vglr9u4i1Kt2PXE
+}
+
+body:json {
+  
+  {
+    "subject": "Test Ticket from Bruno 2",  // Changed subject
+    "category": "technical",
+    "priority": "medium",
+    "description": "This is a test ticket created using Bruno API client."
+  }
+}
