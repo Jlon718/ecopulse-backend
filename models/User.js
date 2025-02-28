@@ -14,12 +14,22 @@ const UserSchema = new mongoose.Schema({
     lastLogin: {
         type: Date,
         default: null
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false
     }
 }, { timestamps: true });
 
 module.exports = mongoose.model("User", UserSchema);
 
 // Add a virtual for full name
+UserSchema.pre(['find', 'findOne'], function(next) {
+    // Add a condition to only find documents where isDeleted is not true
+    this.where({ isDeleted: { $ne: true } });
+    next();
+});
+
 UserSchema.virtual('fullName').get(function() {
     return `${this.firstName} ${this.lastName}`;
 });

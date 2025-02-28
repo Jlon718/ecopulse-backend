@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "start": "concurrently \"npx nodemon server.js\" \"python manage.py runserver\""
+    "start": "concurrently \"npx nodemon server.js\\"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

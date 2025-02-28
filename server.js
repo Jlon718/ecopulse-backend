@@ -3,7 +3,7 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
-
+const userRoutes = require("./routes/userRoutes");
 const app = express();
 
 
@@ -33,6 +33,7 @@ mongoose
 
 // Authentication Routes
 app.use("/api/auth", require("./routes/authRoutes"));
+app.use('/api/users', userRoutes);
 
 const PORT = 5000;
 app.listen(PORT, () => {
