@@ -3,6 +3,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 from linearregression_predictiveanalysis import get_predictions
 from peertopeer import get_peer_to_predictions
+from recommendations import get_solar_recommendations
 import logging
 
 # Configure the logger
@@ -72,6 +73,31 @@ def peertopeer_predictions(request):
         })
     except Exception as e:
         logger.error(f"Error in peertopeer_predictions: {e}")
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
+
+@require_GET
+def solar_recommendations(request):
+    """
+    API endpoint to get solar recommendations based on year and budget.
+    """
+    try:
+        year = int(request.GET.get('year', 2026))
+        budget = float(request.GET.get('budget', 0))
+
+        logger.debug(f"Received request with year: {year}, budget: {budget}")
+
+        # Get solar recommendations
+        recommendations = get_solar_recommendations(year, budget)
+        
+        return JsonResponse({
+            'status': 'success',
+            'recommendations': recommendations
+        })
+    except Exception as e:
+        logger.error(f"Error in solar_recommendations: {e}")
         return JsonResponse({
             'status': 'error',
             'message': str(e)
