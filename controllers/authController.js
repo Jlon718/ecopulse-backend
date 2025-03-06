@@ -244,19 +244,26 @@ exports.verifyAuth = async (req, res) => {
 
 // Logout
 exports.logout = (req, res) => {
+  // Clear both cookies
   res.clearCookie('token', {
     httpOnly: true,
-    secure: false,
-    sameSite: "lax"
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/'
   });
   
   res.clearCookie('refreshToken', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "none"
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/'
   });
   
-  res.json({ success: true, message: "Logged out successfully" })
+  res.json({ 
+    success: true, 
+    message: "Logged out successfully",
+    clearLocalStorage: true // Signal frontend to clear localStorage
+  });
 };
 
 exports.googleSignIn = async (req, res) => {

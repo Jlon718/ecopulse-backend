@@ -243,7 +243,7 @@
         const user = await User.findByIdAndUpdate(
           userId,
           { 
-            isDeleted: true,
+            isDeleted: true, // Ensure this is explicitly set to true
             email: `deleted_${userId}@removed.user`,
             phone: null,
             // Store original data in new fields
@@ -252,6 +252,15 @@
           },
           { new: true }
         );
+        
+        // Verify that isDeleted was actually set to true
+        if (!user.isDeleted) {
+          // If it wasn't set for some reason, force an update
+          await User.updateOne(
+            { _id: userId },
+            { $set: { isDeleted: true } }
+          );
+        }
         
         res.json({
           success: true,
@@ -266,71 +275,64 @@
         });
       }
     };
-  // Restore a soft-deleted user
-  exports.restoreUser = async (req, res) => {
-    try {
-      const userId = req.params.id;
-      
-      // Use direct MongoDB query to bypass all Mongoose middleware
-      const result = await mongoose.connection.db.collection('users').findOneAndUpdate(
-        { _id: new mongoose.Types.ObjectId(userId) },
-        { 
-          $set: { 
-            isDeleted: false 
-          }
-        },
-        { returnDocument: 'after' }
-      );
-      
-      if (!result.value) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found"
-        });
-      }
-      
-      // Get the updated user
-      const user = result.value;
-      
-      // Restore original email and phone if available
-      if (user.originalEmail) {
-        await mongoose.connection.db.collection('users').updateOne(
-          { _id: new mongoose.Types.ObjectId(userId) },
-          { 
-            $set: { 
-              email: user.originalEmail,
-              phone: user.originalPhone || null
-            }
-          }
-        );
-      }
-      
-      // Get the final user data
-      const updatedUser = await mongoose.connection.db.collection('users').findOne(
-        { _id: new mongoose.Types.ObjectId(userId) }
-      );
-      
-      res.json({
-        success: true,
-        message: "User has been successfully restored",
-        user: {
-          id: updatedUser._id,
-          firstName: updatedUser.firstName,
-          lastName: updatedUser.lastName,
-          email: updatedUser.email,
-          phone: updatedUser.phone,
-          role: updatedUser.role
-        }
-      });
-    } catch (error) {
-      console.error("Error restoring user:", error);
-      res.status(500).json({
+
+// Restore a soft-deleted user
+exports.restoreUser = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    // Find the deleted user by ID and ensure it's marked as deleted
+    const deletedUser = await User.findOne({
+      _id: userId,
+      isDeleted: true
+    }).select('+originalEmail +originalPhone');
+
+    if (!deletedUser) {
+      return res.status(404).json({
         success: false,
-        message: "Server Error",
-        error: error.message
+        message: "Deleted user not found or already active"
       });
     }
-  };
+
+    // Restore the user's original email and phone
+    if (deletedUser.originalEmail) {
+      deletedUser.email = deletedUser.originalEmail;
+      deletedUser.originalEmail = undefined;
+    }
+
+    if (deletedUser.originalPhone) {
+      deletedUser.phone = deletedUser.originalPhone;
+      deletedUser.originalPhone = undefined;
+    }
+
+    // Make sure to set isDeleted to false
+    deletedUser.isDeleted = false;
+
+    // Save the changes
+    await deletedUser.save();
+
+    res.json({
+      success: true,
+      message: "User has been successfully restored",
+      user: {
+        id: deletedUser._id,
+        firstName: deletedUser.firstName,
+        lastName: deletedUser.lastName,
+        email: deletedUser.email,
+        phone: deletedUser.phone,
+        role: deletedUser.role
+      }
+    });
+  } catch (error) {
+    console.error("Error restoring user:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message
+    });
+  }
+};
+
 
   // Get all users including deleted ones (admin only)
   exports.getAllUsersWithDeleted = async (req, res) => {
@@ -398,6 +400,7 @@
       });
     }
   };
+
 
 
 

@@ -1,9 +1,8 @@
+// Improved auth middleware
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
 module.exports = async (req, res, next) => {
-  console.log("=== AUTH MIDDLEWARE STARTED ===");
-  
   // Define public routes that don't need auth
   const publicRoutes = [
     '/api/auth/login',
@@ -17,7 +16,6 @@ module.exports = async (req, res, next) => {
 
   // Skip middleware for public routes
   if (publicRoutes.includes(req.path)) {
-    console.log(`Skipping auth for public route: ${req.path}`);
     return next();
   }
 
@@ -32,7 +30,6 @@ module.exports = async (req, res, next) => {
   }
 
   if (!token) {
-    console.log("No token found");
     return res.status(401).json({ 
       success: false, 
       message: "Authentication required" 
@@ -41,31 +38,20 @@ module.exports = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId);
+    const user = await User.findById(decoded.userId).select('-password');
 
     if (!user) {
-      console.log("User not found");
       return res.status(404).json({ 
         success: false, 
         message: "User not found" 
       });
     }
 
-    // Check verification status for protected routes
-    const protectedRoutes = [
-      '/api/dashboard',
-      '/api/admin',
-      '/api/predictions'
-    ];
-
-    if (protectedRoutes.some(route => req.path.startsWith(route)) && !user.isVerified) {
-      console.log("Unverified user attempting to access protected route");
-      return res.status(401).json({
+    // Add soft-deleted user check
+    if (user.isDeleted) {
+      return res.status(403).json({
         success: false,
-        message: "Email verification required",
-        requireVerification: true,
-        userId: user._id,
-        email: user.email
+        message: "Account has been deactivated"
       });
     }
 
@@ -84,10 +70,10 @@ module.exports = async (req, res, next) => {
     const now = Date.now();
     const fiveMinutes = 5 * 60 * 1000;
 
-    if (tokenExp - now < fiveMinutes && req.cookies?.refreshToken) {
+    if (tokenExp - now < fiveMinutes) {
       try {
         const newToken = jwt.sign(
-          { userId: user._id },
+          { userId: user._id, role: user.role },
           process.env.JWT_SECRET,
           { expiresIn: '1h' }
         );
@@ -98,6 +84,9 @@ module.exports = async (req, res, next) => {
           sameSite: 'lax',
           maxAge: 3600000 // 1 hour
         });
+        
+        // Also set header for frontend to capture
+        res.setHeader('X-New-Token', newToken);
       } catch (refreshError) {
         console.error("Token refresh failed:", refreshError);
       }
@@ -105,8 +94,6 @@ module.exports = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error("Auth error:", error);
-    
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({
         success: false,
