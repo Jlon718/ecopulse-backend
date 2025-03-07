@@ -57,17 +57,27 @@ router.post("/resend-verification", resendVerificationCode);
 
 // Logout (no auth required)
 router.post("/logout", (req, res) => {
+  // Clear the token cookie
   res.clearCookie("token", {
     path: "/",
     httpOnly: true,
     sameSite: "none",
     secure: false,
   });
+  
+  // Also clear any refreshToken cookie with the same options
+  res.clearCookie("refreshToken", {
+    path: "/",
+    httpOnly: true,
+    sameSite: "none",
+    secure: false,
+  });
+  
   res.json({
     success: true,
     message: "Logged out successfully. Please remove the token on the client side.",
   });
-});
+}); 
 
 // Check auth status (requires auth)
 router.get('/verify', authMiddleware, verifyAuth);

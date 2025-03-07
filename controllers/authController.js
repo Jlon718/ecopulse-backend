@@ -243,27 +243,68 @@ exports.verifyAuth = async (req, res) => {
 };
 
 // Logout
+// Updated Logout Function for authController.js
+
+// Logout
 exports.logout = (req, res) => {
-  // Clear both cookies
+  console.log("=== LOGOUT ENDPOINT CALLED ===");
+  console.log("Clearing all auth cookies");
+  
+  // Get the full details of how the cookies were set from token.js
+  // This is critical - the options must match EXACTLY
+  
+  // 1. Clear main auth token cookie with matching options
   res.clearCookie('token', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/'
+    secure: false, // IMPORTANT: This must match how it was set
+    sameSite: 'lax', 
+    path: '/' // Default path if not specified when set
   });
+  console.log("Cleared 'token' cookie");
   
+  // 2. Clear refresh token cookie with matching options
   res.clearCookie('refreshToken', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/'
+    sameSite: 'none', // IMPORTANT: must match how it was set
+    path: '/' // Default path if not specified when set
   });
+  console.log("Cleared 'refreshToken' cookie");
   
+  // 3. Try alternative options for maximum compatibility
+  // Sometimes browsers need different combinations
+  
+  // Default cookie clear (no options)
+  res.clearCookie('token');
+  res.clearCookie('refreshToken');
+  console.log("Also cleared cookies with no options");
+  
+  // Try with different sameSite options
+  ['strict', 'lax', 'none'].forEach(sameSite => {
+    [true, false].forEach(secure => {
+      res.clearCookie('token', {
+        httpOnly: true,
+        secure: secure,
+        sameSite: sameSite
+      });
+      
+      res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: secure,
+        sameSite: sameSite
+      });
+    });
+  });
+  console.log("Attempted to clear cookies with all sameSite/secure combinations");
+  
+  // 4. Send success response with instruction to clear localStorage
   res.json({ 
     success: true, 
     message: "Logged out successfully",
     clearLocalStorage: true // Signal frontend to clear localStorage
   });
+  
+  console.log("=== LOGOUT COMPLETED ===");
 };
 
 exports.googleSignIn = async (req, res) => {
