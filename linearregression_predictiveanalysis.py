@@ -8,18 +8,79 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import joblib
 import logging
+from pymongo import MongoClient
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure the logger
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def load_and_preprocess_data(file_path):
+# MongoDB connection
+MONGO_URI = os.getenv("MONGO_URL")  # Load MongoDB URI from environment variables
+DATABASE_NAME = "ecopulse"  # Replace with your database name
+COLLECTION_NAME = "predictiveAnalysis"  # Replace with your collection name
+
+def connect_to_mongodb():
     """
-    Load the dataset and preprocess it by handling missing values.
+    Connect to MongoDB Atlas and return the collection.
     """
-    df = pd.read_excel(file_path)
-    df = df.fillna(method='ffill')  # Forward fill missing values
-    return df
+    try:
+        client = MongoClient(MONGO_URI)
+        db = client[DATABASE_NAME]
+        collection = db[COLLECTION_NAME]
+        logger.debug("Connected to MongoDB Atlas successfully.")
+        return collection
+    except Exception as e:
+        logger.error(f"Error connecting to MongoDB: {e}")
+        raise
+
+def create(data):
+    """
+    Insert actual data into MongoDB.
+    """
+    try:
+        collection = connect_to_mongodb()
+        collection.insert_one(data)
+        logger.info("Actual data inserted successfully.")
+    except Exception as e:
+        logger.error(f"Error inserting actual data: {e}")
+        raise
+
+def load_and_preprocess_data():
+    """
+    Load the dataset from MongoDB and preprocess it by handling missing values.
+    """
+    try:
+        collection = connect_to_mongodb()
+        # Fetch all documents from the collection
+        data = list(collection.find({}))
+        # Convert the data to a pandas DataFrame
+        df = pd.DataFrame(data)
+        # Convert numeric fields from strings to numbers
+        numeric_columns = [
+            "Total Renewable Energy (GWh)",
+            "Geothermal (GWh)",
+            "Hydro (GWh)",
+            "Biomass (GWh)",
+            "Solar (GWh)",
+            "Wind (GWh)",
+            "Non-Renewable Energy (GWh)",
+            "Total Power Generation (GWh)",
+            "Population (in millions)",
+            "Gross Domestic Product"
+        ]
+        for col in numeric_columns:
+            if df[col].dtype == 'object':
+                df[col] = pd.to_numeric(df[col].str.replace(",", ""), errors="coerce")
+        # Forward fill missing values
+        df = df.fillna(method="ffill")
+        return df
+    except Exception as e:
+        logger.error(f"Error loading and preprocessing data: {e}")
+        raise
 
 def train_model(df, features, target):
     """
@@ -66,13 +127,8 @@ def get_predictions(target, start_year, end_year):
         
         model = joblib.load(model_path)
         
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        data_path = os.path.join(script_dir, 'EcoPulse-Data.xlsx')
-        
-        # Log the data path
-        logger.debug(f"Loading data from {data_path}")
-        
-        df = load_and_preprocess_data(data_path)
+        # Load data from MongoDB
+        df = load_and_preprocess_data()
         
         features = ['Year', 'Population (in millions)', 'Non-Renewable Energy (GWh)']
         
@@ -90,9 +146,8 @@ def get_predictions(target, start_year, end_year):
         raise
 
 def main():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(script_dir, 'EcoPulse-Data.xlsx')
-    df = load_and_preprocess_data(file_path)
+    # Load data from MongoDB
+    df = load_and_preprocess_data()
     features = ['Year', 'Population (in millions)', 'Non-Renewable Energy (GWh)']
     targets = ['Geothermal (GWh)', 'Hydro (GWh)', 'Biomass (GWh)', 'Solar (GWh)', 'Wind (GWh)']
     models = {}

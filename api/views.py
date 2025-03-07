@@ -1,10 +1,14 @@
 # filepath: /d:/TUP/ECOPULSE/backend/api/views.py
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
-from linearregression_predictiveanalysis import get_predictions
+from linearregression_predictiveanalysis import get_predictions, create
 from peertopeer import get_peer_to_predictions
 from recommendations import get_solar_recommendations
 import logging
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.views import View
+import json
 
 # Configure the logger
 logging.basicConfig(level=logging.DEBUG)
@@ -102,3 +106,16 @@ def solar_recommendations(request):
             'status': 'error',
             'message': str(e)
         }, status=500)
+
+@method_decorator(csrf_exempt, name='dispatch')
+class CreateView(View):
+    def post(self, request):
+        """
+        API endpoint to insert actual data into MongoDB.
+        """
+        try:
+            data = json.loads(request.body)
+            create(data)
+            return JsonResponse({'status': 'success', 'message': 'Data inserted successfully'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
