@@ -37,6 +37,18 @@ def connect_to_mongodb():
         logger.error(f"Error connecting to MongoDB: {e}")
         raise
 
+def create(data):
+    """
+    Insert actual data into MongoDB.
+    """
+    try:
+        collection = connect_to_mongodb()
+        collection.insert_one(data)
+        logger.info("Actual data inserted successfully.")
+    except Exception as e:
+        logger.error(f"Error inserting actual data: {e}")
+        raise
+
 def load_and_preprocess_data():
     """
     Load the dataset from MongoDB and preprocess it by handling missing values.
