@@ -10,6 +10,8 @@ import joblib
 import logging
 from pymongo import MongoClient
 from dotenv import load_dotenv
+from pymongo.errors import ConnectionFailure
+import time
 
 # Load environment variables from .env file
 load_dotenv()
@@ -23,19 +25,26 @@ MONGO_URI = os.getenv("MONGO_URL")  # Load MongoDB URI from environment variable
 DATABASE_NAME = "ecopulse"  # Replace with your database name
 COLLECTION_NAME = "predictiveAnalysis"  # Replace with your collection name
 
-def connect_to_mongodb():
+def connect_to_mongodb(retries=3, delay=5):
     """
     Connect to MongoDB Atlas and return the collection.
+    Retries the connection in case of failure.
     """
-    try:
-        client = MongoClient(MONGO_URI)
-        db = client[DATABASE_NAME]
-        collection = db[COLLECTION_NAME]
-        logger.debug("Connected to MongoDB Atlas successfully.")
-        return collection
-    except Exception as e:
-        logger.error(f"Error connecting to MongoDB: {e}")
-        raise
+    for attempt in range(retries):
+        try:
+            client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+            db = client[DATABASE_NAME]
+            collection = db[COLLECTION_NAME]
+            # Attempt to ping the server to check the connection
+            client.admin.command('ping')
+            logger.debug("Connected to MongoDB Atlas successfully.")
+            return collection
+        except ConnectionFailure as e:
+            logger.error(f"Error connecting to MongoDB (attempt {attempt + 1}): {e}")
+            if attempt < retries - 1:
+                time.sleep(delay)
+            else:
+                raise
 
 def create(data):
     """
@@ -43,6 +52,8 @@ def create(data):
     """
     try:
         collection = connect_to_mongodb()
+        # Add the isPredicted flag for actual data
+        data['isPredicted'] = False
         collection.insert_one(data)
         logger.info("Actual data inserted successfully.")
     except Exception as e:
@@ -57,6 +68,7 @@ def load_and_preprocess_data():
         collection = connect_to_mongodb()
         # Fetch all documents from the collection
         data = list(collection.find({}))
+        logger.debug(f"Fetched data: {data}")  # Add detailed logging
         # Convert the data to a pandas DataFrame
         df = pd.DataFrame(data)
         # Convert numeric fields from strings to numbers
@@ -76,7 +88,12 @@ def load_and_preprocess_data():
             if df[col].dtype == 'object':
                 df[col] = pd.to_numeric(df[col].str.replace(",", ""), errors="coerce")
         # Forward fill missing values
-        df = df.fillna(method="ffill")
+        df = df.ffill()  # Use ffill() instead of fillna(method="ffill")
+        # Ensure coordinates are included
+        if 'Latitude' in df.columns and 'Longitude' in df.columns:
+            df['coordinates'] = df.apply(lambda row: {'lat': row['Latitude'], 'lng': row['Longitude']}, axis=1)
+        else:
+            df['coordinates'] = None
         return df
     except Exception as e:
         logger.error(f"Error loading and preprocessing data: {e}")
@@ -112,7 +129,13 @@ def forecast_production(model, df, features, start_year, end_year):
     future_years['Population (in millions)'] = projected_population
     future_years['Non-Renewable Energy (GWh)'] = projected_non_renewable
     future_years[f'Predicted Production'] = model.predict(future_years[features])
-    return future_years[['Year', 'Predicted Production']]  # Return only the required columns
+    
+    # Preserve the isPredicted flag for existing data
+    future_years['isPredicted'] = future_years['Year'].apply(
+        lambda year: df.loc[df['Year'] == year, 'isPredicted'].values[0] if year in df['Year'].values else True
+    )
+    
+    return future_years[['Year', 'Predicted Production', 'isPredicted']]  # Include the flag in the output
 
 def get_predictions(target, start_year, end_year):
     """
