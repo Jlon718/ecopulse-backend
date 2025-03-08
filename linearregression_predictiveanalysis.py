@@ -10,6 +10,8 @@ import joblib
 import logging
 from pymongo import MongoClient
 from dotenv import load_dotenv
+from pymongo.errors import ConnectionFailure
+import time
 
 # Load environment variables from .env file
 load_dotenv()
@@ -23,19 +25,26 @@ MONGO_URI = os.getenv("MONGO_URL")  # Load MongoDB URI from environment variable
 DATABASE_NAME = "ecopulse"  # Replace with your database name
 COLLECTION_NAME = "predictiveAnalysis"  # Replace with your collection name
 
-def connect_to_mongodb():
+def connect_to_mongodb(retries=3, delay=5):
     """
     Connect to MongoDB Atlas and return the collection.
+    Retries the connection in case of failure.
     """
-    try:
-        client = MongoClient(MONGO_URI)
-        db = client[DATABASE_NAME]
-        collection = db[COLLECTION_NAME]
-        logger.debug("Connected to MongoDB Atlas successfully.")
-        return collection
-    except Exception as e:
-        logger.error(f"Error connecting to MongoDB: {e}")
-        raise
+    for attempt in range(retries):
+        try:
+            client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+            db = client[DATABASE_NAME]
+            collection = db[COLLECTION_NAME]
+            # Attempt to ping the server to check the connection
+            client.admin.command('ping')
+            logger.debug("Connected to MongoDB Atlas successfully.")
+            return collection
+        except ConnectionFailure as e:
+            logger.error(f"Error connecting to MongoDB (attempt {attempt + 1}): {e}")
+            if attempt < retries - 1:
+                time.sleep(delay)
+            else:
+                raise
 
 def create(data):
     """
@@ -57,6 +66,7 @@ def load_and_preprocess_data():
         collection = connect_to_mongodb()
         # Fetch all documents from the collection
         data = list(collection.find({}))
+        logger.debug(f"Fetched data: {data}")  # Add detailed logging
         # Convert the data to a pandas DataFrame
         df = pd.DataFrame(data)
         # Convert numeric fields from strings to numbers
@@ -77,6 +87,8 @@ def load_and_preprocess_data():
                 df[col] = pd.to_numeric(df[col].str.replace(",", ""), errors="coerce")
         # Forward fill missing values
         df = df.fillna(method="ffill")
+        # Ensure coordinates are included
+        df['coordinates'] = df.apply(lambda row: {'lat': row['Latitude'], 'lng': row['Longitude']}, axis=1)
         return df
     except Exception as e:
         logger.error(f"Error loading and preprocessing data: {e}")
