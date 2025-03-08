@@ -52,6 +52,8 @@ def create(data):
     """
     try:
         collection = connect_to_mongodb()
+        # Add the isPredicted flag for actual data
+        data['isPredicted'] = False
         collection.insert_one(data)
         logger.info("Actual data inserted successfully.")
     except Exception as e:
@@ -86,9 +88,12 @@ def load_and_preprocess_data():
             if df[col].dtype == 'object':
                 df[col] = pd.to_numeric(df[col].str.replace(",", ""), errors="coerce")
         # Forward fill missing values
-        df = df.fillna(method="ffill")
+        df = df.ffill()  # Use ffill() instead of fillna(method="ffill")
         # Ensure coordinates are included
-        df['coordinates'] = df.apply(lambda row: {'lat': row['Latitude'], 'lng': row['Longitude']}, axis=1)
+        if 'Latitude' in df.columns and 'Longitude' in df.columns:
+            df['coordinates'] = df.apply(lambda row: {'lat': row['Latitude'], 'lng': row['Longitude']}, axis=1)
+        else:
+            df['coordinates'] = None
         return df
     except Exception as e:
         logger.error(f"Error loading and preprocessing data: {e}")
@@ -124,7 +129,13 @@ def forecast_production(model, df, features, start_year, end_year):
     future_years['Population (in millions)'] = projected_population
     future_years['Non-Renewable Energy (GWh)'] = projected_non_renewable
     future_years[f'Predicted Production'] = model.predict(future_years[features])
-    return future_years[['Year', 'Predicted Production']]  # Return only the required columns
+    
+    # Preserve the isPredicted flag for existing data
+    future_years['isPredicted'] = future_years['Year'].apply(
+        lambda year: df.loc[df['Year'] == year, 'isPredicted'].values[0] if year in df['Year'].values else True
+    )
+    
+    return future_years[['Year', 'Predicted Production', 'isPredicted']]  # Include the flag in the output
 
 def get_predictions(target, start_year, end_year):
     """
