@@ -27,7 +27,14 @@ const generateTokens = (user, res = null) => {
     lastName: user.lastName,
     email: user.email,
     phone: user.phone || "",
-    role: user.role
+    role: user.role,
+    isVerified: user.isVerified || false,
+    profilePicture: user.profilePicture || "",
+    lastLogin: user.lastLogin || new Date(),
+    googleId: user.googleId || null,
+    createdAt: user.createdAt || new Date(),
+    updatedAt: user.updatedAt || new Date(),
+    verificationStatus: user.isVerified ? 'verified' : 'pending'
   };
   
   console.log("Token payload being generated:", userPayload);
@@ -79,7 +86,8 @@ const generateTokens = (user, res = null) => {
   
   return {
     accessToken,
-    refreshToken
+    refreshToken,
+    user: userPayload // Adding user info to the return object
   };
 };
 
