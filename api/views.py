@@ -1,7 +1,7 @@
 # filepath: /d:/TUP/ECOPULSE/backend/api/views.py
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
-from linearregression_predictiveanalysis import get_predictions, create
+from linearregression_predictiveanalysis import get_predictions, create, connect_to_mongodb  # Import the function here
 from peertopeer import get_peer_to_predictions
 from recommendations import get_solar_recommendations
 import logging
@@ -9,6 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.views import View
 import json
+from django.views.decorators.http import require_http_methods
 
 # Configure the logger
 logging.basicConfig(level=logging.DEBUG)
@@ -79,8 +80,8 @@ def peertopeer_predictions(request):
         logger.error(f"Error in peertopeer_predictions: {e}")
         return JsonResponse({
             'status': 'error',
-            'message': str(e)
-        }, status=500)
+            'message': str(e)}
+        , status=500)
 
 @require_GET
 def solar_recommendations(request):
@@ -104,8 +105,7 @@ def solar_recommendations(request):
         logger.error(f"Error in solar_recommendations: {e}")
         return JsonResponse({
             'status': 'error',
-            'message': str(e)
-        }, status=500)
+            'message': str(e)}, status=500)
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CreateView(View):
@@ -119,3 +119,79 @@ class CreateView(View):
             return JsonResponse({'status': 'success', 'message': 'Data inserted successfully'})
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+@require_http_methods(["PUT"])
+@csrf_exempt
+def update_record(request, year):
+    """
+    API endpoint to update an existing record in MongoDB using the year.
+    """
+    try:
+        data = json.loads(request.body)
+        collection = connect_to_mongodb()
+        
+        # Log the incoming data and year
+        logger.debug(f"Updating record for Year: {year} with data: {data}")
+        
+        # Fetch the existing record
+        existing_record = collection.find_one({"Year": int(year)})
+        if not existing_record:
+            logger.error(f"Record not found for Year: {year}")
+            return JsonResponse({'status': 'error', 'message': 'Record not found'}, status=404)
+        
+        # Calculate the new values for Total Power Generation and Total Renewable Energy
+        total_renewable_energy = (
+            data.get('Geothermal (GWh)', existing_record.get('Geothermal (GWh)', 0)) +
+            existing_record.get('Hydro (GWh)', 0) +
+            existing_record.get('Biomass (GWh)', 0) +
+            existing_record.get('Solar (GWh)', 0) +
+            existing_record.get('Wind (GWh)', 0)
+        )
+        
+        total_power_generation = (
+            total_renewable_energy +
+            data.get('Non-Renewable Energy (GWh)', existing_record.get('Non-Renewable Energy (GWh)', 0))
+        )
+        
+        # Update the data with the new calculated values
+        data['Total Renewable Energy (GWh)'] = total_renewable_energy
+        data['Total Power Generation (GWh)'] = total_power_generation
+        
+        result = collection.update_one(
+            {"Year": int(year)},
+            {"$set": data}
+        )
+        
+        if result.matched_count == 0:
+            logger.error(f"Record not found for Year: {year}")
+            return JsonResponse({'status': 'error', 'message': 'Record not found'}, status=404)
+        
+        logger.info(f"Record updated successfully for Year: {year}")
+        return JsonResponse({'status': 'success', 'message': 'Record updated successfully'})
+    except Exception as e:
+        logger.error(f"Error updating record: {e}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+@require_http_methods(["DELETE"])
+@csrf_exempt
+def delete_record(request, year):
+    """
+    API endpoint to delete an existing record in MongoDB using the year.
+    """
+    try:
+        collection = connect_to_mongodb()
+        
+        # Log the year of the record to be deleted
+        logger.debug(f"Deleting record for Year: {year}")
+        
+        result = collection.delete_one({"Year": int(year)})
+        
+        if result.deleted_count == 0:
+            logger.error(f"Record not found for Year: {year}")
+            return JsonResponse({'status': 'error', 'message': 'Record not found'}, status=404)
+        
+        logger.info(f"Record deleted successfully for Year: {year}")
+        return JsonResponse({'status': 'success', 'message': 'Record deleted successfully'})
+    except Exception as e:
+        logger.error(f"Error deleting record: {e}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
