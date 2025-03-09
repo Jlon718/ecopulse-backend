@@ -135,7 +135,14 @@ def forecast_production(model, df, features, start_year, end_year):
         lambda year: df.loc[df['Year'] == year, 'isPredicted'].values[0] if year in df['Year'].values else True
     )
     
-    return future_years[['Year', 'Predicted Production', 'isPredicted']]  # Include the flag in the output
+    # Include actual data for non-predicted years
+    for year in future_years['Year']:
+        if not future_years.loc[future_years['Year'] == year, 'isPredicted'].values[0]:
+            future_years.loc[future_years['Year'] == year, 'Population (in millions)'] = df.loc[df['Year'] == year, 'Population (in millions)'].values[0]
+            future_years.loc[future_years['Year'] == year, 'Non-Renewable Energy (GWh)'] = df.loc[df['Year'] == year, 'Non-Renewable Energy (GWh)'].values[0]
+            future_years.loc[future_years['Year'] == year, 'Gross Domestic Product'] = df.loc[df['Year'] == year, 'Gross Domestic Product'].values[0]
+    
+    return future_years[['Year', 'Predicted Production', 'Population (in millions)', 'Non-Renewable Energy (GWh)', 'Gross Domestic Product', 'isPredicted']]  # Include the flag in the output
 
 def get_predictions(target, start_year, end_year):
     """
