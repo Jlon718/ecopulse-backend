@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const userRoutes = require("./routes/userRoutes");
+const ticketRoutes = require("./routes/ticketRoutes");
 const app = express();
 
 
@@ -30,14 +31,16 @@ mongoose
     console.log("DB not connected", err);
   });
 
+// Initialize Firebase Admin SDK
 
 // Authentication Routes
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use('/api/users', userRoutes);
+app.use('/api/ticket', ticketRoutes);
 
 const PORT = 5000;
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Server running at http://localhost:${PORT})`);
 });
 
 // Export app for listing routes without running the server
