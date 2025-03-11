@@ -120,29 +120,88 @@ def forecast_production(model, df, features, start_year, end_year):
     Returns a DataFrame with 'Year' and 'Predicted Production'.
     """
     future_years = pd.DataFrame({'Year': range(start_year, end_year + 1)})
+    
+    # Calculate growth rates for features we need to project
     avg_population_growth = df['Population (in millions)'].pct_change().mean()
     avg_non_renewable_growth = df['Non-Renewable Energy (GWh)'].pct_change().mean()
+    
+    # Get the most recent values
     last_population = df['Population (in millions)'].iloc[-1]
     last_non_renewable = df['Non-Renewable Energy (GWh)'].iloc[-1]
+    
+    # Calculate projected values for each feature
     projected_population = [last_population * (1 + avg_population_growth) ** (year - df['Year'].iloc[-1]) for year in future_years['Year']]
     projected_non_renewable = [last_non_renewable * (1 + avg_non_renewable_growth) ** (year - df['Year'].iloc[-1]) for year in future_years['Year']]
+    
+    # Add projections to future_years DataFrame
     future_years['Population (in millions)'] = projected_population
     future_years['Non-Renewable Energy (GWh)'] = projected_non_renewable
-    future_years[f'Predicted Production'] = model.predict(future_years[features])
+    
+    # Project GDP if it's used in the model
+    if 'Gross Domestic Product' in df.columns:
+        # Calculate GDP growth rate if available
+        try:
+            avg_gdp_growth = df['Gross Domestic Product'].pct_change().mean()
+            last_gdp = df['Gross Domestic Product'].iloc[-1]
+            projected_gdp = [last_gdp * (1 + avg_gdp_growth) ** (year - df['Year'].iloc[-1]) for year in future_years['Year']]
+            future_years['Gross Domestic Product'] = projected_gdp
+        except Exception as e:
+            logger.warning(f"Could not project GDP: {e}. Using default values.")
+            # Use a default growth rate of 3% if calculation fails
+            last_gdp = df['Gross Domestic Product'].iloc[-1] if 'Gross Domestic Product' in df.columns and len(df['Gross Domestic Product']) > 0 else 1000.0
+            future_years['Gross Domestic Product'] = [last_gdp * (1.03) ** (year - df['Year'].iloc[-1]) for year in future_years['Year']]
+    
+    # Make predictions using only the features the model was trained on
+    prediction_features = [col for col in features if col in future_years.columns]
+    
+    # Ensure we have all required features for prediction
+    missing_features = [col for col in features if col not in future_years.columns]
+    if missing_features:
+        logger.warning(f"Missing features for prediction: {missing_features}. Using defaults.")
+        # Set default values for missing features
+        for feature in missing_features:
+            future_years[feature] = 1.0  # Use a default value
+    
+    # Make the prediction
+    future_years['Predicted Production'] = model.predict(future_years[features])
     
     # Preserve the isPredicted flag for existing data
-    future_years['isPredicted'] = future_years['Year'].apply(
-        lambda year: df.loc[df['Year'] == year, 'isPredicted'].values[0] if year in df['Year'].values else True
-    )
+    future_years['isPredicted'] = True  # Default all to predictions
     
-    # Include actual data for non-predicted years
+    # Override with actual data for years that exist in original dataset
     for year in future_years['Year']:
-        if not future_years.loc[future_years['Year'] == year, 'isPredicted'].values[0]:
-            future_years.loc[future_years['Year'] == year, 'Population (in millions)'] = df.loc[df['Year'] == year, 'Population (in millions)'].values[0]
-            future_years.loc[future_years['Year'] == year, 'Non-Renewable Energy (GWh)'] = df.loc[df['Year'] == year, 'Non-Renewable Energy (GWh)'].values[0]
-            future_years.loc[future_years['Year'] == year, 'Gross Domestic Product'] = df.loc[df['Year'] == year, 'Gross Domestic Product'].values[0]
+        if year in df['Year'].values:
+            year_data = df[df['Year'] == year]
+            # Get index in future_years where Year matches
+            idx = future_years[future_years['Year'] == year].index[0]
+            
+            # Use actual data from original dataset for this year
+            future_years.loc[idx, 'isPredicted'] = False
+            
+            # Update features with actual values where available
+            for feature in features:
+                if feature in year_data.columns and not pd.isna(year_data[feature].values[0]):
+                    future_years.loc[idx, feature] = year_data[feature].values[0]
+            
+            # If target variable exists in original data, use that instead of prediction
+            target_col = None
+            for col in df.columns:
+                if '(GWh)' in col and 'Non-Renewable' not in col and 'Total' not in col:
+                    target_col = col
+                    break
+            
+            if target_col and target_col in year_data.columns:
+                future_years.loc[idx, 'Predicted Production'] = year_data[target_col].values[0]
     
-    return future_years[['Year', 'Predicted Production', 'Population (in millions)', 'Non-Renewable Energy (GWh)', 'Gross Domestic Product', 'isPredicted']]  # Include the flag in the output
+    # Include all relevant columns in the output
+    output_columns = ['Year', 'Predicted Production', 'isPredicted']
+    
+    # Include feature columns if they exist
+    for feature in features:
+        if feature in future_years.columns and feature != 'Year':
+            output_columns.append(feature)
+    
+    return future_years[output_columns]
 
 def get_predictions(target, start_year, end_year):
     """
