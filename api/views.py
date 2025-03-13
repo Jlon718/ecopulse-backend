@@ -31,6 +31,10 @@ def get_renewable_energy_predictions(request, target):
             end_year = int(end_year)
         else:
             end_year = 2040
+        
+        # Log the request parameters
+        logger.debug(f"Received request for target: {target}, start_year: {start_year}, end_year: {end_year}")
+        
         # Get predictions for the specified target
         predictions = get_predictions(target, start_year, end_year)
         
@@ -43,6 +47,7 @@ def get_renewable_energy_predictions(request, target):
             'predictions': predictions_dict
         })
     except Exception as e:
+        logger.error(f"Error in get_renewable_energy_predictions: {e}")
         return JsonResponse({
             'status': 'error',
             'message': str(e)
@@ -176,22 +181,52 @@ def update_record(request, year):
 @csrf_exempt
 def delete_record(request, year):
     """
-    API endpoint to delete an existing record in MongoDB using the year.
+    API endpoint to soft delete an existing record in MongoDB using the year.
     """
     try:
         collection = connect_to_mongodb()
         
-        # Log the year of the record to be deleted
-        logger.debug(f"Deleting record for Year: {year}")
+        # Log the year of the record to be soft deleted
+        logger.debug(f"Soft deleting record for Year: {year}")
         
-        result = collection.delete_one({"Year": int(year)})
+        result = collection.update_one(
+            {"Year": int(year)},
+            {"$set": {"isDeleted": True}}
+        )
         
-        if result.deleted_count == 0:
+        if result.matched_count == 0:
             logger.error(f"Record not found for Year: {year}")
             return JsonResponse({'status': 'error', 'message': 'Record not found'}, status=404)
         
-        logger.info(f"Record deleted successfully for Year: {year}")
-        return JsonResponse({'status': 'success', 'message': 'Record deleted successfully'})
+        logger.info(f"Record soft deleted successfully for Year: {year}")
+        return JsonResponse({'status': 'success', 'message': 'Record soft deleted successfully'})
     except Exception as e:
-        logger.error(f"Error deleting record: {e}")
+        logger.error(f"Error soft deleting record: {e}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+@require_http_methods(["PUT"])
+@csrf_exempt
+def recover_record(request, year):
+    """
+    API endpoint to recover a soft deleted record in MongoDB using the year.
+    """
+    try:
+        collection = connect_to_mongodb()
+        
+        # Log the year of the record to be recovered
+        logger.debug(f"Recovering record for Year: {year}")
+        
+        result = collection.update_one(
+            {"Year": int(year)},
+            {"$set": {"isDeleted": False}}
+        )
+        
+        if result.matched_count == 0:
+            logger.error(f"Record not found for Year: {year}")
+            return JsonResponse({'status': 'error', 'message': 'Record not found'}, status=404)
+        
+        logger.info(f"Record recovered successfully for Year: {year}")
+        return JsonResponse({'status': 'success', 'message': 'Record recovered successfully'})
+    except Exception as e:
+        logger.error(f"Error recovering record: {e}")
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)

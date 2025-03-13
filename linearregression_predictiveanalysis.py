@@ -12,6 +12,8 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 from pymongo.errors import ConnectionFailure
 import time
+from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import csrf_exempt
 
 # Load environment variables from .env file
 load_dotenv()
@@ -54,6 +56,7 @@ def create(data):
         collection = connect_to_mongodb()
         # Add the isPredicted flag for actual data
         data['isPredicted'] = False
+        data['isDeleted'] = False
         collection.insert_one(data)
         logger.info("Actual data inserted successfully.")
     except Exception as e:
@@ -130,9 +133,12 @@ def forecast_production(model, df, features, start_year, end_year):
     future_years['Non-Renewable Energy (GWh)'] = projected_non_renewable
     future_years[f'Predicted Production'] = model.predict(future_years[features])
     
-    # Preserve the isPredicted flag for existing data
+    # Preserve the isPredicted and isDeleted flags for existing data
     future_years['isPredicted'] = future_years['Year'].apply(
         lambda year: df.loc[df['Year'] == year, 'isPredicted'].values[0] if year in df['Year'].values else True
+    )
+    future_years['isDeleted'] = future_years['Year'].apply(
+        lambda year: df.loc[df['Year'] == year, 'isDeleted'].values[0] if year in df['Year'].values else None
     )
     
     # Include actual data for non-predicted years
@@ -142,7 +148,7 @@ def forecast_production(model, df, features, start_year, end_year):
             future_years.loc[future_years['Year'] == year, 'Non-Renewable Energy (GWh)'] = df.loc[df['Year'] == year, 'Non-Renewable Energy (GWh)'].values[0]
             future_years.loc[future_years['Year'] == year, 'Gross Domestic Product'] = df.loc[df['Year'] == year, 'Gross Domestic Product'].values[0]
     
-    return future_years[['Year', 'Predicted Production', 'Population (in millions)', 'Non-Renewable Energy (GWh)', 'Gross Domestic Product', 'isPredicted']]  # Include the flag in the output
+    return future_years[['Year', 'Predicted Production', 'Population (in millions)', 'Non-Renewable Energy (GWh)', 'Gross Domestic Product', 'isPredicted', 'isDeleted']]  # Include the flags in the output
 
 def get_predictions(target, start_year, end_year):
     """
@@ -174,6 +180,33 @@ def get_predictions(target, start_year, end_year):
     except Exception as e:
         logger.error(f"Error in get_predictions: {e}")
         raise
+
+@require_http_methods(["DELETE"])
+@csrf_exempt
+def delete_record(request, year):
+    """
+    API endpoint to soft delete an existing record in MongoDB using the year.
+    """
+    try:
+        collection = connect_to_mongodb()
+        
+        # Log the year of the record to be soft deleted
+        logger.debug(f"Soft deleting record for Year: {year}")
+        
+        result = collection.update_one(
+            {"Year": int(year)},
+            {"$set": {"isDeleted": True}}
+        )
+        
+        if result.matched_count == 0:
+            logger.error(f"Record not found for Year: {year}")
+            return JsonResponse({'status': 'error', 'message': 'Record not found'}, status=404)
+        
+        logger.info(f"Record soft deleted successfully for Year: {year}")
+        return JsonResponse({'status': 'success', 'message': 'Record soft deleted successfully'})
+    except Exception as e:
+        logger.error(f"Error soft deleting record: {e}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 def main():
     # Load data from MongoDB
