@@ -11,12 +11,18 @@ const app = express();
 
 app.use(
   cors({
-    origin: "http://localhost:5173", // Allow frontend requests
+    origin: [
+      "http://localhost:5173", // Web (Vite/React)
+      "http://192.168.1.3:5000", // Mobile
+      "http://192.168.1.3:5173"  // Web access from another device on the same network
+    ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true
   })
 );
+
+
 app.use(cookieParser());
 // Middleware to parse JSON
 app.use(express.json());
@@ -39,9 +45,11 @@ app.use('/api/users', userRoutes);
 app.use('/api/ticket', ticketRoutes);
 
 const PORT = 5000;
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT})`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running at http://192.168.1.3:${PORT} (For Mobile)`);
+  console.log(`Server also accessible at http://localhost:${PORT} (For Web)`);
 });
+
 
 // Export app for listing routes without running the server
 module.exports = app;
