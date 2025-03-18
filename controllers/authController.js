@@ -13,6 +13,8 @@ const {
   sendReactivationConfirmationEmail 
 } = require('../utils/emailService');
 const crypto = require("crypto");
+const { sendDeactivatedAccountLoginAttemptEmail } = require('../utils/emailService');
+
 
 exports.register = async (req, res) => {
   try {
@@ -190,68 +192,47 @@ exports.login = async (req, res) => {
         return res.status(400).json({ success: false, message: "Invalid credentials" });
       }
       
-      // Password matches and account is auto-deactivated, reactivate it
+      // Password matches, but DO NOT reactivate
+      // Instead, send notification email for login attempt on deactivated account
+      try {
+        await sendDeactivatedAccountLoginAttemptEmail(rawUser);
+        console.log("Notification email sent for deactivated account login attempt");
+      } catch (emailError) {
+        console.error("Error sending notification email:", emailError);
+      }
+      
+      // Generate a reactivation token
+      const crypto = require('crypto');
+      const reactivationToken = crypto.randomBytes(32).toString("hex");
+      const tokenExpires = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
+      
+      // Store token in database
       await usersCollection.updateOne(
         { _id: rawUser._id },
         { 
           $set: {
-            isAutoDeactivated: false,
-            autoDeactivatedAt: null,
-            reactivationToken: null,
-            reactivationTokenExpires: null,
-            lastActivity: new Date(),
-            lastLogin: new Date()
+            reactivationToken: reactivationToken,
+            reactivationTokenExpires: tokenExpires,
+            lastReactivationAttempt: new Date(),
+            reactivationAttempts: (rawUser.reactivationAttempts || 0) + 1
           }
         }
       );
       
-      console.log("Auto-deactivated account reactivated during login");
-      
-      // Try to send reactivation confirmation email
+      // Send reactivation email with token
       try {
-        // Convert raw user to a format expected by the email service
-        const userForEmail = {
-          _id: rawUser._id,
-          email: rawUser.email,
-          firstName: rawUser.firstName || '',
-          lastName: rawUser.lastName || ''
-        };
-        
-        await sendReactivationConfirmationEmail(userForEmail);
-        console.log("Sent reactivation confirmation email to:", email);
+        await sendAutoDeactivationEmail(rawUser, reactivationToken);
+        console.log("Reactivation email with token sent");
       } catch (emailError) {
         console.error("Error sending reactivation email:", emailError);
       }
       
-      // Get the updated user for token generation
-      const reactivatedUser = await User.findById(rawUser._id);
-      if (!reactivatedUser) {
-        return res.status(500).json({ 
-          success: false, 
-          message: "Error retrieving reactivated user"
-        });
-      }
-      
-      // Generate tokens using the utility function
-      const { accessToken } = generateTokens(reactivatedUser, res);
-      
-      // Return success response with reactivation info
-      return res.status(200).json({
-        success: true,
-        message: "Your account has been reactivated. Welcome back!",
-        wasReactivated: true,
-        user: {
-          id: reactivatedUser._id,
-          firstName: reactivatedUser.firstName,
-          lastName: reactivatedUser.lastName,
-          email: reactivatedUser.email,
-          gender: reactivatedUser.gender,
-          avatar: reactivatedUser.avatar,
-          role: reactivatedUser.role,
-          lastLogin: new Date(),
-          isVerified: reactivatedUser.isVerified === true,
-          accessToken
-        }
+      // Return response informing user to check email
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been deactivated. A reactivation link has been sent to your email.",
+        isAutoDeactivated: true,
+        email: rawUser.email
       });
     }
 
@@ -322,7 +303,8 @@ exports.login = async (req, res) => {
     if (rawUser.isVerified !== true) {
       // Resend verification email
       try {
-        await sendVerificationEmail(user);
+        await sendVerificationEmail(rawUser);
+        console.log("Verification email resent");
       } catch (emailError) {
         console.error("Error resending verification email:", emailError);
       }
