@@ -173,6 +173,177 @@ const sendPasswordResetEmail = async (user, token) => {
   }
 };
 
+// Account recovery email
+const sendAccountRecoveryEmail = async (user, token) => {
+  try {
+    if (!process.env.EMAIL_FROM || !process.env.EMAIL_USER) {
+      throw new Error('Email configuration is missing');
+    }
+    
+    // Use environment variable for the frontend URL
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const recoveryUrl = `${baseUrl}/recover-account?token=${token}`;
+
+    console.log('Sending account recovery email...');
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: user.email,
+      subject: 'Recover Your Account - EcoPulse',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #2C7A51;">Account Recovery</h2>
+          <p>We received a request to recover your deactivated account. Click the link below to reactivate your account:</p>
+          
+          <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; text-align: center; margin: 20px 0;">
+            <a href="${recoveryUrl}" style="background-color: #2C7A51; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block;">Recover My Account</a>
+          </div>
+          
+          <p><strong>Important:</strong> This link will expire in 5 hours.</p>
+          <p>If you did not request to recover your account, please ignore this email.</p>
+          
+          <p>Thank you,<br>The EcoPulse Team</p>
+        </div>
+      `
+    });
+
+    console.log('Account recovery email sent successfully:', {
+      messageId: info.messageId,
+      recipient: user.email
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('Error sending account recovery email:', error);
+    throw new Error(`Failed to send account recovery email: ${error.message}`);
+  }
+};
+
+// For auto-deactivation emails
+const sendAutoDeactivationEmail = async (user, reactivationToken) => {
+  try {
+    if (!process.env.EMAIL_FROM || !process.env.EMAIL_USER) {
+      throw new Error('Email configuration is missing');
+    }
+    
+    // Use environment variable for the frontend URL
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    
+    // Use the reactivationToken parameter correctly
+    const reactivationUrl = `${baseUrl}/recover-account?token=${reactivationToken}`;
+
+    console.log('Sending auto-deactivation email...');
+    console.log('Reactivation URL:', reactivationUrl);
+    
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: user.email,
+      subject: 'Your Account Has Been Deactivated - EcoPulse',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #2C7A51;">Account Deactivated</h2>
+          <p>Your EcoPulse account has been automatically deactivated due to inactivity.</p>
+          <p>To reactivate your account, please click the link below:</p>
+          
+          <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; text-align: center; margin: 20px 0;">
+            <a href="${reactivationUrl}" style="background-color: #2C7A51; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block;">Reactivate My Account</a>
+          </div>
+          
+          <p>This link will expire in 90 days.</p>
+          <p>If you no longer wish to use your account, no action is needed.</p>
+          
+          <p>Thank you,<br>The EcoPulse Team</p>
+        </div>
+      `
+    });
+
+    console.log('Auto-deactivation email sent successfully:', {
+      messageId: info.messageId,
+      recipient: user.email
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('Error sending auto-deactivation email:', error);
+    throw new Error(`Failed to send auto-deactivation email: ${error.message}`);
+  }
+};
+
+// For reactivation confirmation emails
+const sendReactivationConfirmationEmail = async (user) => {
+  try {
+    if (!process.env.EMAIL_FROM || !process.env.EMAIL_USER) {
+      throw new Error('Email configuration is missing');
+    }
+
+    console.log('Sending reactivation confirmation email...');
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: user.email,
+      subject: 'Account Reactivated - EcoPulse',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #2C7A51;">Account Reactivated</h2>
+          <p>Your EcoPulse account has been successfully reactivated.</p>
+          <p>You now have full access to all features and services again.</p>
+          <p>If you did not reactivate your account, please contact our support team immediately.</p>
+          
+          <p>Thank you,<br>The EcoPulse Team</p>
+        </div>
+      `
+    });
+
+    console.log('Reactivation confirmation email sent successfully:', {
+      messageId: info.messageId,
+      recipient: user.email
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('Error sending reactivation confirmation email:', error);
+    throw new Error(`Failed to send reactivation confirmation email: ${error.message}`);
+  }
+};
+
+// For admin notifications
+const sendAdminNotification = async (user) => {
+  try {
+    const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
+    if (!process.env.EMAIL_FROM || !process.env.EMAIL_USER) {
+      throw new Error('Email configuration is missing');
+    }
+
+    console.log('Sending admin notification...');
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: adminEmail,
+      subject: 'Account Reactivation Notification - EcoPulse',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #2C7A51;">Account Reactivation Notification</h2>
+          <p>A previously deactivated account has been reactivated:</p>
+          <ul>
+            <li><strong>User:</strong> ${user.firstName} ${user.lastName}</li>
+            <li><strong>Email:</strong> ${user.email}</li>
+            <li><strong>User ID:</strong> ${user._id}</li>
+            <li><strong>Reactivated at:</strong> ${new Date().toISOString()}</li>
+          </ul>
+          
+          <p>EcoPulse Admin System</p>
+        </div>
+      `
+    });
+
+    console.log('Admin notification sent successfully:', {
+      messageId: info.messageId
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('Error sending admin notification:', error);
+    throw new Error(`Failed to send admin notification: ${error.message}`);
+  }
+};
+
 // Verify that the email server is ready
 transporter.verify(function(error, success) {
   if (error) {
@@ -182,9 +353,14 @@ transporter.verify(function(error, success) {
   }
 });
 
+// Export all the necessary functions
 module.exports = {
   generateVerificationCode,
   sendVerificationEmail,
   sendGoogleVerificationEmail,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  sendAccountRecoveryEmail,
+  sendAutoDeactivationEmail,
+  sendReactivationConfirmationEmail,
+  sendAdminNotification
 };

@@ -28,11 +28,13 @@ DEBUG = True
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
-    '10.0.2.2',  # Android emulator address
-    '10.0.3.2',  # Genymotion emulator address 
-    '192.168.1.3',  # Your computer's IP address (without port)
-    '192.168.121.118',  # Your computer's IP address (without port)
+    '10.0.2.2',  # Android emulator
+    '10.0.3.2',  # Genymotion emulator
+    '192.168.1.3',  # Your computer's IP
+    '192.168.121.118',  # Your computer's IP
+    '192.168.1.2',  # Add this line
 ]
+
 
 # Application definition
 
