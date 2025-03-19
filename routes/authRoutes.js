@@ -1,30 +1,9 @@
 // routes/authRoutes.js
 const express = require("express");
 const { body } = require("express-validator");
-const { 
-  register, 
-  login, 
-  verifyAuth, 
-  logout, 
-  googleSignIn,
-  verifyEmail,
-  resendVerificationCode,
-  forgotPassword,
-  resetPassword
-} = require("../controllers/authController");
-
-const { 
-  reactivateAccount,
-  requestReactivation,
-  checkAccountStatus,
-  debugAutoDeactivatedAccounts,
-  debugEmailService
-} = require("../controllers/accountController");
-
-const { 
-  getAllUsers, 
-  updateUserRole 
-} = require("../controllers/userController");
+const authController = require("../controllers/authController");
+const accountController = require("../controllers/accountController");
+const userController = require("../controllers/userController");
 
 const authMiddleware = require("../middleware/authMiddleware");
 const adminMiddleware = require("../middleware/adminMiddleware");
@@ -39,7 +18,7 @@ router.post(
     body("email", "Valid email is required").isEmail(),
     body("password", "Password must be at least 6 characters").isLength({ min: 6 }),
   ],
-  register
+  authController.register
 );
 
 router.post(
@@ -48,39 +27,42 @@ router.post(
     body("email", "Valid email is required").isEmail(),
     body("password", "Password is required").exists(),
   ],
-  login
+  authController.login
 );
 
 // Password routes
-router.post("/forgot-password", forgotPassword);
-router.post("/reset-password", resetPassword);
+router.post("/forgot-password", authController.forgotPassword);
+router.post("/reset-password", authController.resetPassword);
 
-// Account reactivation endpoints
-router.post("/reactivate-account", reactivateAccount);
-router.post("/request-reactivation", requestReactivation);
-router.post("/check-account-status", checkAccountStatus);
+// Account management routes
+router.post("/deactivate-account", authMiddleware, accountController.deactivateAccount);
+router.post("/reactivate-account", accountController.reactivateAccount);
+router.post("/request-reactivation", accountController.requestReactivation);
+router.post("/check-account-status", accountController.checkAccountStatus);
+router.post("/check-deactivated", accountController.checkDeactivatedAccount);
 
 // Google Authentication endpoint (no auth required)
-router.post("/google-signin", googleSignIn);
+router.post("/google-signin", authController.googleSignIn);
 
 // Email verification endpoints (no auth required for direct verification)
-router.post("/verify-email", verifyEmail);
+router.post("/verify-email", authController.verifyEmail);
 
 // Resend verification requires auth but not verification
-router.post("/resend-verification", resendVerificationCode);
+router.post("/resend-verification", authController.resendVerificationCode);
 
 // Logout (no auth required)
-router.post("/logout", logout);
+router.post("/logout", authController.logout);
 
 // Check auth status (requires auth)
-router.get('/verify', authMiddleware, verifyAuth);
+router.get('/verify', authMiddleware, authController.verifyAuth);
 
 // Admin routes (require auth and admin role)
-router.get('/users', authMiddleware, adminMiddleware, getAllUsers);
-router.put('/users/:userId/role', authMiddleware, adminMiddleware, updateUserRole);
+router.get('/users', authMiddleware, adminMiddleware, userController.getAllUsers);
+router.put('/users/:userId/role', authMiddleware, adminMiddleware, userController.updateUserRole);
+router.post('/admin/deactivate-user', authMiddleware, adminMiddleware, accountController.adminDeactivateUser);
 
-// Debug routes (admin only in production)
-router.get('/debug/email-service', debugEmailService);
-router.get('/debug/deactivated-accounts', authMiddleware, adminMiddleware, debugAutoDeactivatedAccounts);
+// Debug routes
+router.get('/debug/email-service', accountController.debugEmailService);
+router.get('/debug/deactivated-accounts', authMiddleware, adminMiddleware, accountController.debugAutoDeactivatedAccounts);
 
 module.exports = router;

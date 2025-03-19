@@ -13,7 +13,7 @@ const {
   sendReactivationConfirmationEmail 
 } = require('../utils/emailService');
 const crypto = require("crypto");
-const { sendDeactivatedAccountLoginAttemptEmail } = require('../utils/emailService');
+const { sendDeactivatedAccountLoginAttemptEmail, sendAutoDeactivationEmail } = require('../utils/emailService');
 
 
 exports.register = async (req, res) => {
@@ -163,7 +163,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Try to find the user regardless of isDeleted status first
+    // Try to find the user regardless of isDeactivated status first
     // Use a direct MongoDB query to bypass any Mongoose filters
     const db = mongoose.connection.db;
     const usersCollection = db.collection('users');
@@ -172,7 +172,7 @@ exports.login = async (req, res) => {
     console.log("Raw DB query result:", rawUser ? {
       id: rawUser._id.toString(),
       email: rawUser.email,
-      isDeleted: !!rawUser.isDeleted,
+      isDeactivated: !!rawUser.isDeactivated,
       isAutoDeactivated: !!rawUser.isAutoDeactivated,
       hasPassword: !!rawUser.password
     } : "No user found");
@@ -236,8 +236,8 @@ exports.login = async (req, res) => {
       });
     }
 
-    // If we found a raw user with isDeleted=true, reject login
-    if (rawUser.isDeleted === true) {
+    // If we found a raw user with isDeactivated=true, reject login
+    if (rawUser.isDeactivated === true) {
       console.log("Found deleted account through raw query:", rawUser.email);
       return res.status(400).json({ 
         success: false, 
@@ -471,24 +471,26 @@ exports.googleSignIn = async (req, res) => {
   try {
     console.log("Google Sign-In request received");
     
-    // Extract data from request body sent by the frontend
+    // Extract data from request body
     const { idToken, email, displayName, photoURL, uid } = req.body;
     
+    // Validate required fields
     if (!idToken || !email) {
       return res.status(400).json({
         success: false,
         message: "Missing required information"
       });
     }
-    
+
     // Verify Firebase token
     let decodedToken;
     try {
       decodedToken = await admin.auth().verifyIdToken(idToken);
-      
-      // Verify that the token belongs to the correct user (just log warning if mismatch)
       if (decodedToken.uid !== uid) {
-        console.warn("Token UID mismatch:", { tokenUid: decodedToken.uid, requestUid: uid });
+        console.warn("Token UID mismatch:", { 
+          tokenUid: decodedToken.uid, 
+          requestUid: uid 
+        });
       }
     } catch (error) {
       console.error("Firebase token verification failed:", error);
@@ -497,206 +499,195 @@ exports.googleSignIn = async (req, res) => {
         message: "Invalid or expired token"
       });
     }
-    
-    // First check if there's any user with this email, including auto-deactivated ones
+
+    // Database setup
+    const db = mongoose.connection.db;
+    const usersCollection = db.collection('users');
     let user = null;
+
+    // Check existing users
     try {
-      // This will find the user even if they're auto-deactivated
-      const db = mongoose.connection.db;
-      const usersCollection = db.collection('users');
       user = await usersCollection.findOne({ email: email });
-      
-      console.log(`User lookup for ${email}:`, user ? `Found (isAutoDeactivated: ${user.isAutoDeactivated})` : "Not found");
+      console.log(`User lookup for ${email}:`, 
+        user ? `Found (status: ${user.isAutoDeactivated ? 'auto-deactivated' : 'active'})` : "Not found");
     } catch (findError) {
       console.error("Error finding user:", findError);
+      return res.status(500).json({
+        success: false,
+        message: "Server error during user lookup"
+      });
     }
-    
-    // If we found an auto-deactivated user, handle reactivation
+
+    // Handle auto-deactivated accounts
     if (user && user.isAutoDeactivated) {
-      console.log("Found auto-deactivated account for Google sign-in:", email);
+      console.log("Handling auto-deactivated account:", email);
       
-      // Reactivate the account
-      await User.findByIdAndUpdate(user._id, {
-        isAutoDeactivated: false,
-        autoDeactivatedAt: null,
-        reactivationToken: null,
-        reactivationTokenExpires: null,
-        lastActivity: new Date(),
-        lastLogin: new Date(),
-        googleId: uid, // Update or set Google ID
-        avatar: photoURL || user.avatar // Update avatar if provided
-      });
-      
-      console.log("Auto-deactivated account reactivated through Google sign-in");
-      
-      // Retrieve the updated user
-      const reactivatedUser = await User.findById(user._id);
-      
-      // Send reactivation confirmation email
       try {
-        await sendReactivationConfirmationEmail(reactivatedUser);
-        console.log("Sent reactivation confirmation email to", email);
+        // Send notifications
+        await sendDeactivatedAccountLoginAttemptEmail(user);
+        console.log("Deactivation notification email sent");
+
+        // Generate reactivation token
+        const reactivationToken = crypto.randomBytes(32).toString("hex");
+        const tokenExpires = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+
+        // Update user record
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { 
+            $set: {
+              reactivationToken: reactivationToken,
+              reactivationTokenExpires: tokenExpires,
+              lastReactivationAttempt: new Date(),
+              reactivationAttempts: (user.reactivationAttempts || 0) + 1
+            }
+          }
+        );
+
+        // Send reactivation email
+        await sendAutoDeactivationEmail(user, reactivationToken);
+        console.log("Reactivation email sent");
+
+        return res.status(403).json({
+          success: false,
+          message: "Your account has been deactivated. A reactivation link has been sent to your email.",
+          isAutoDeactivated: true,
+          email: user.email
+        });
       } catch (emailError) {
-        console.error("Error sending reactivation email:", emailError);
+        console.error("Error in deactivation handling:", emailError);
+        return res.status(500).json({
+          success: false,
+          message: "Error processing deactivated account"
+        });
       }
-      
-      // Generate tokens for the reactivated user
-      const { accessToken } = generateTokens(reactivatedUser, res);
-      
-      // Return success response with reactivation info
-      return res.status(200).json({
-        success: true,
-        message: "Your account has been reactivated. Welcome back!",
-        wasReactivated: true,
-        user: {
-          id: reactivatedUser._id,
-          firstName: reactivatedUser.firstName,
-          lastName: reactivatedUser.lastName,
-          email: reactivatedUser.email,
-          gender: reactivatedUser.gender,
-          avatar: reactivatedUser.avatar,
-          role: reactivatedUser.role,
-          lastLogin: new Date(),
-          isVerified: reactivatedUser.isVerified,
-          accessToken
-        }
-      });
     }
-    
-    // If we found a deleted user, reject the sign-in
-    if (user && user.isDeleted) {
-      console.log("Found deleted account for Google sign-in:", email);
+
+    // Handle manually deactivated accounts
+    if (user && user.isDeactivated) {
+      console.log("Found deleted account:", email);
       return res.status(400).json({
         success: false,
-        message: "This account has been deleted and cannot be used."
+        message: "This account has been permanently deleted and cannot be used."
       });
     }
-    
-    // Normal flow for existing active users
-    if (user && !user.isDeleted) {
-      // Update Google ID and last activity if needed
-      if (user.googleId !== uid || !user.lastActivity) {
-        await User.findByIdAndUpdate(user._id, {
-          googleId: uid,
-          avatar: photoURL || user.avatar,
-          lastActivity: new Date(),
-          lastLogin: new Date()
-        });
-      }
 
-      // Check if the user is verified
-      if (!user.isVerified) {
-        try {
-          await sendGoogleVerificationEmail(user);
-        } catch (emailError) {
-          console.error("Error sending Google verification email:", emailError);
-        }
-
-        return res.status(200).json({
-          success: false,
-          requireVerification: true,
-          userId: user._id,
-          user: {
-            email: user.email
-          },
-          message: "Please verify your email to complete Google sign-in"
-        });
-      }
-      
-      // User exists, is active, and is verified - update the user
-      const updatedUser = await User.findByIdAndUpdate(
-        user._id,
-        { lastLogin: new Date(), lastActivity: new Date() },
-        { new: true }
-      );
-      
-      console.log("User is verified, proceeding with login");
-      
-      // Generate tokens
-      const { accessToken } = generateTokens(updatedUser, res);
-      
-      // Return success response
-      return res.json({
-        success: true,
-        message: "Google sign-in successful",
-        user: {
-          id: updatedUser._id,
-          firstName: updatedUser.firstName,
-          lastName: updatedUser.lastName,
-          email: updatedUser.email,
-          gender: updatedUser.gender,
-          avatar: updatedUser.avatar,
-          role: updatedUser.role,
-          lastLogin: updatedUser.lastLogin,
-          isVerified: updatedUser.isVerified,
-          accessToken
-        }
-      });
-    } else if (!user) {
-      // No user exists - create new one
-      console.log("Creating new user for Google sign-in:", email);
-      
-      // Parse display name
-      let firstName = displayName || "Google";
-      let lastName = "User";
-      
-      if (displayName && displayName.includes(' ')) {
-        const nameParts = displayName.split(' ');
-        firstName = nameParts[0];
-        lastName = nameParts.slice(1).join(' ');
-      }
-      
-      // Create new user
+    // Existing active user flow
+    if (user && !user.isDeactivated) {
       try {
-        user = new User({
+        // Update user information
+        if (user.googleId !== uid || !user.lastActivity) {
+          await User.findByIdAndUpdate(user._id, {
+            googleId: uid,
+            avatar: photoURL || user.avatar,
+            lastActivity: new Date(),
+            lastLogin: new Date()
+          });
+        }
+
+        // Handle email verification
+        if (!user.isVerified) {
+          await sendGoogleVerificationEmail(user);
+          return res.status(200).json({
+            success: false,
+            requireVerification: true,
+            userId: user._id,
+            user: { email: user.email },
+            message: "Please verify your email to complete Google sign-in"
+          });
+        }
+
+        // Finalize login for verified users
+        const updatedUser = await User.findByIdAndUpdate(
+          user._id,
+          { lastLogin: new Date(), lastActivity: new Date() },
+          { new: true }
+        );
+
+        // Generate tokens
+        const { accessToken } = generateTokens(updatedUser, res);
+
+        return res.json({
+          success: true,
+          message: "Google sign-in successful",
+          user: {
+            id: updatedUser._id,
+            firstName: updatedUser.firstName,
+            lastName: updatedUser.lastName,
+            email: updatedUser.email,
+            gender: updatedUser.gender,
+            avatar: updatedUser.avatar,
+            role: updatedUser.role,
+            lastLogin: updatedUser.lastLogin,
+            isVerified: updatedUser.isVerified,
+            accessToken
+          }
+        });
+      } catch (updateError) {
+        console.error("Error updating user:", updateError);
+        return res.status(500).json({
+          success: false,
+          message: "Error processing user account"
+        });
+      }
+    }
+
+    // New user creation flow
+    if (!user) {
+      try {
+        // Parse display name
+        let firstName = "Google";
+        let lastName = "User";
+        if (displayName && displayName.includes(' ')) {
+          const nameParts = displayName.split(' ');
+          firstName = nameParts[0];
+          lastName = nameParts.slice(1).join(' ');
+        }
+
+        // Create new user
+        const newUser = new User({
           firstName,
           lastName,
           email,
           googleId: uid,
           avatar: photoURL || "default-avatar",
-          gender: "prefer-not-to-say", // Default gender
-          isVerified: false, // Set as unverified
+          gender: "prefer-not-to-say",
+          isVerified: false,
           lastActivity: new Date(),
           lastLogin: new Date()
         });
-        
-        await user.save();
-        console.log("New user created for Google sign-in:", user._id);
-        
-        // Send verification email for new user
-        try {
-          await sendGoogleVerificationEmail(user);
-        } catch (emailError) {
-          console.error("Error sending Google verification email:", emailError);
-        }
+
+        await newUser.save();
+        console.log("New user created:", newUser._id);
+
+        // Send verification email
+        await sendGoogleVerificationEmail(newUser);
 
         return res.status(200).json({
           success: false,
           requireVerification: true,
-          userId: user._id,
-          user: {
-            email: user.email
-          },
+          userId: newUser._id,
+          user: { email: newUser.email },
           message: "Please verify your email to complete Google sign-in"
         });
-      } catch (dbError) {
-        console.error("Error creating user for Google sign-in:", dbError);
+      } catch (creationError) {
+        console.error("Error creating user:", creationError);
         return res.status(500).json({
           success: false,
-          message: "Error creating account",
-          error: dbError.message
+          message: "Error creating new account",
+          error: creationError.message
         });
       }
     }
-    
-    // This should never happen, but just in case
-    throw new Error("Failed to process Google sign-in");
-    
+
+    // Fallback error
+    throw new Error("Unexpected error processing Google sign-in");
+
   } catch (error) {
     console.error("Google Sign-In Error:", error);
     res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "Server error during authentication",
       error: error.message
     });
   }
@@ -854,71 +845,43 @@ exports.resendVerificationCode = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
-
+    
     if (!email) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Email is required" 
-      });
+      return res.status(400).json({ success: false, message: "Email is required" });
     }
 
-    // Find user by email (check both active and auto-deactivated)
-    const db = mongoose.connection.db;
-    const usersCollection = db.collection('users');
-    const user = await usersCollection.findOne({ 
+    // Use Mongoose to find the user
+    const user = await User.findOne({ 
       email,
-      isDeleted: { $ne: true } // Exclude permanently deleted users
+      isDeactivated: { $ne: true }
     });
     
     if (!user) {
-      // To prevent user enumeration, respond with a success message
       return res.status(200).json({
         success: true,
         message: "If that email address is in our database, we will send a password reset link."
       });
     }
 
-    // If account is auto-deactivated, reactivate it
-    let updatedUser = user;
+    // Handle auto-deactivated accounts
     if (user.isAutoDeactivated) {
-      // Reactivate the account
-      await usersCollection.updateOne(
-        { _id: user._id },
-        { 
-          $set: {
-            isAutoDeactivated: false,
-            autoDeactivatedAt: null,
-            reactivationToken: null,
-            reactivationTokenExpires: null,
-            lastActivity: new Date()
-          }
-        }
-      );
-      
-      // Get the updated user
-      updatedUser = await User.findById(user._id);
-      
-      if (!updatedUser) {
-        // Fallback to original user if we can't find the updated one
-        updatedUser = new User(user);
-      }
-      
+      user.isAutoDeactivated = false;
+      user.autoDeactivatedAt = null;
+      user.reactivationToken = null;
+      user.reactivationTokenExpires = null;
+      user.lastActivity = new Date();
       console.log("Auto-deactivated account reactivated during password reset");
-    } else {
-      // If user is active, create a Mongoose model from the raw document
-      updatedUser = new User(user);
     }
-
-    // Generate a reset token (using crypto for randomness)
+    
+    // Generate and add reset token
     const resetToken = crypto.randomBytes(20).toString("hex");
-    updatedUser.resetPasswordToken = resetToken;
-    // Token expires in 1 hour (3600000 milliseconds)
-    updatedUser.resetPasswordExpires = Date.now() + 3600000;
-    await updatedUser.save();
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpires = Date.now() + 3600000;
+    await user.save();
 
     // Send password reset email
     try {
-      await sendPasswordResetEmail(updatedUser, resetToken);
+      await sendPasswordResetEmail(user, resetToken);
     } catch (emailError) {
       console.error("Error sending password reset email:", emailError);
       return res.status(500).json({
@@ -929,7 +892,7 @@ exports.forgotPassword = async (req, res) => {
     }
 
     res.status(200).json({
-      success: true,
+      success: true, 
       message: "If that email address is in our database, we will send a password reset link."
     });
   } catch (error) {

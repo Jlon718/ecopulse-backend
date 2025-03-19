@@ -22,7 +22,7 @@ console.log('Environment variables loaded:', {
 // You may need to hardcode your MongoDB connection string if .env isn't working
 // IMPORTANT: Replace this with your actual MongoDB connection string
 // For development purposes only - avoid hardcoding credentials in production code
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/your-database-name';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:5000/api';
 
 async function deactivateSpecificUser() {
   try {
@@ -102,7 +102,7 @@ async function deactivateSpecificUser() {
     if (updateResult.modifiedCount > 0) {
       console.log('User successfully deactivated!');
       console.log('Reactivation token:', reactivationToken);
-      console.log('Reactivation URL:', `/recover-account?token=${reactivationToken}`);
+      console.log('Reactivation URL:', `/reactivate-account?token=${reactivationToken}`);
     } else {
       console.log('No changes were made to the user');
     }

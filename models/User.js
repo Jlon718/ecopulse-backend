@@ -2,9 +2,9 @@
 const mongoose = require("mongoose");
 
 const UserSchema = new mongoose.Schema({
-  firstName: { type: String, required: true },
-  lastName: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
+  firstName: { type: String, required: true, trim: true },
+  lastName: { type: String, required: true, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { 
     type: String, 
     required: function() {
@@ -12,7 +12,7 @@ const UserSchema = new mongoose.Schema({
       return !this.googleId;
     }
   },
-  googleId: { type: String },
+  googleId: { type: String, unique: true, sparse: true },
   
   // Gender field with inclusive options
   gender: {
@@ -29,67 +29,34 @@ const UserSchema = new mongoose.Schema({
   
   role: {
     type: String,
-    default: "user",
-    enum: ["user", "admin"]
+    enum: ["user", "admin"],
+    default: "user"
   },
-  lastLogin: {
-    type: Date,
-    default: null
-  },
-  lastActivity: {
-    type: Date,
-    default: Date.now
-  },
-  isDeleted: {
-    type: Boolean,
-    default: false
-  },
+  lastLogin: { type: Date, default: null },
+  lastActivity: { type: Date, default: Date.now },
+  isDeactivated: { type: Boolean, default: false },
+  
   // Auto-deactivation tracking
-  isAutoDeactivated: {
-    type: Boolean,
-    default: false
-  },
-  autoDeactivatedAt: {
-    type: Date,
-    default: null
-  },
+  isAutoDeactivated: { type: Boolean, default: false },
+  autoDeactivatedAt: { type: Date, default: null },
+  
   // Fields for email verification
-  isVerified: {
-    type: Boolean,
-    default: false
-  },
-  verificationCode: {
-    type: String
-  },
-  verificationCodeExpires: {
-    type: Date
-  },
+  isVerified: { type: Boolean, default: false },
+  verificationCode: { type: String, trim: true },
+  verificationCodeExpires: { type: Date },
+  
   // Reset Password fields
-  resetPasswordToken: {
-    type: String
-  },
-  resetPasswordExpires: {
-    type: Date
-  },
+  resetPasswordToken: { type: String, trim: true },
+  resetPasswordExpires: { type: Date },
+  
   // Account reactivation fields
-  reactivationToken: {
-    type: String,
-    default: null
-  },
-  reactivationTokenExpires: {
-    type: Date,
-    default: null
-  },
-  reactivationAttempts: {
-    type: Number,
-    default: 0
-  },
-  lastReactivationAttempt: {
-    type: Date,
-    default: null
-  },
+  reactivationToken: { type: String, default: null, trim: true },
+  reactivationTokenExpires: { type: Date, default: null },
+  reactivationAttempts: { type: Number, default: 0 },
+  lastReactivationAttempt: { type: Date, default: null },
+  
   // Tracking original values for recovery
-  originalEmail: { type: String }
+  originalEmail: { type: String, trim: true }
 }, { timestamps: true });
 
 // Virtual for full name
@@ -97,20 +64,32 @@ UserSchema.virtual('fullName').get(function() {
   return `${this.firstName} ${this.lastName}`;
 });
 
-// Skip deleted users in queries UNLESS explicitly querying for them
+// toJSON transformation to remove sensitive fields when serializing
+UserSchema.set('toJSON', {
+  transform: (doc, ret, options) => {
+    delete ret.password;
+    delete ret.verificationCode;
+    delete ret.verificationCodeExpires;
+    delete ret.resetPasswordToken;
+    delete ret.resetPasswordExpires;
+    delete ret.reactivationToken;
+    delete ret.reactivationTokenExpires;
+    delete ret.reactivationAttempts;
+    delete ret.lastReactivationAttempt;
+    return ret;
+  }
+});
+
+// Pre-hook to exclude deleted users unless explicitly queried for them
 UserSchema.pre(['find', 'findOne', 'findById'], function(next) {
-  // Check if we're working with the "restore" method or directly accessing by ID
-  if (this.getQuery() && this.getQuery().hasOwnProperty('isDeleted')) {
-    // If we're directly querying for isDeleted value, don't modify the query
+  if (this.getQuery() && Object.prototype.hasOwnProperty.call(this.getQuery(), 'isDeactivated')) {
     return next();
   }
-  
-  // Otherwise, exclude deleted users
-  this.where({ isDeleted: { $ne: true } });
+  this.where({ isDeactivated: { $ne: true } });
   next();
 });
 
-// Method to check if user account is inactive
+// Method to check if the user account is inactive (no activity for over a month)
 UserSchema.methods.isInactive = function() {
   if (!this.lastActivity) return false;
   
@@ -120,7 +99,7 @@ UserSchema.methods.isInactive = function() {
   return this.lastActivity < oneMonthAgo;
 };
 
-// Method to update last activity
+// Method to update last activity timestamp
 UserSchema.methods.updateActivity = function() {
   this.lastActivity = new Date();
   return this.save();

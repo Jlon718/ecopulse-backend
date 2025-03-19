@@ -11,9 +11,10 @@ const {
   markAllNotificationsAsRead,
   getActivityReport
 } = require("../controllers/adminController");
+const accountController = require("../controllers/accountController");
 
-const authMiddleware = require("../middleware/authMiddleware");
-const adminMiddleware = require("../middleware/adminMiddleware");
+const authMiddleware = require("../middleware/auth").authenticateJWT;
+const adminMiddleware = require("../middleware/auth").isAdmin;
 
 // Apply auth and admin middleware to all routes
 router.use(authMiddleware, adminMiddleware);
@@ -34,6 +35,10 @@ router.patch('/notifications/read-all', markAllNotificationsAsRead);
 // Activity report route (for export)
 router.get('/reports/activity', getActivityReport);
 
+// User management routes from accountController
+router.post('/users/deactivate', accountController.adminDeactivateUser);
+router.post('/users/restore', accountController.adminRestoreUser);
+
 // Auto-deactivation monitoring routes
 router.get('/auto-deactivation/stats', async (req, res) => {
   try {
@@ -45,7 +50,7 @@ router.get('/auto-deactivation/stats', async (req, res) => {
     // Get count of auto-deactivated accounts
     const autoDeactivatedCount = await usersCollection.countDocuments({ 
       isAutoDeactivated: true,
-      isDeleted: false
+      isDeactivated: false
     });
     
     // Get count of accounts with expired reactivation tokens
@@ -53,7 +58,7 @@ router.get('/auto-deactivation/stats', async (req, res) => {
       reactivationTokenExpires: { $lt: new Date() },
       $or: [
         { isAutoDeactivated: true },
-        { isDeleted: true }
+        { isDeactivated: true }
       ]
     });
     
@@ -129,7 +134,7 @@ router.get('/inactive-account-logins', async (req, res) => {
       reactivationAttempts: 1,
       reactivatedAt: 1,
       isAutoDeactivated: 1,
-      isDeleted: 1
+      isDeactivated: 1
     })
     .toArray();
     
@@ -143,7 +148,7 @@ router.get('/inactive-account-logins', async (req, res) => {
       id: user._id.toString(),
       name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown',
       email: user.email,
-      status: user.isDeleted ? 'Deleted' : (user.isAutoDeactivated ? 'Auto-deactivated' : 'Active'),
+      status: user.isDeactivated ? 'Deleted' : (user.isAutoDeactivated ? 'Auto-deactivated' : 'Active'),
       deactivatedAt: user.autoDeactivatedAt || user.deletedAt,
       lastLoginAttempt: user.lastReactivationAttempt,
       totalAttempts: user.reactivationAttempts || 0,
@@ -197,7 +202,7 @@ router.get('/reports/reactivation-metrics', async (req, res) => {
     
     // Get auto-deactivation counts
     const deactivatedTotal = await usersCollection.countDocuments({
-      $or: [{ isAutoDeactivated: true }, { isDeleted: true }]
+      $or: [{ isAutoDeactivated: true }, { isDeactivated: true }]
     });
     
     const deactivatedToday = await usersCollection.countDocuments({
@@ -290,85 +295,6 @@ router.get('/reports/reactivation-metrics', async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating reactivation metrics report:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-});
-
-// Manual trigger for auto-deactivation process (for testing)
-router.post('/auto-deactivation/trigger', async (req, res) => {
-  try {
-    const { initScheduledTasks } = require('../jobs/scheduledTasks');
-    
-    // This is just for testing - in production, you'd run specific tasks
-    // rather than re-initializing the whole system
-    initScheduledTasks();
-    
-    res.json({
-      success: true,
-      message: 'Auto-deactivation process triggered'
-    });
-  } catch (error) {
-    console.error('Error triggering auto-deactivation:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-});
-
-// Generate system health report
-router.get('/system-health', async (req, res) => {
-  try {
-    const mongoose = require('mongoose');
-    const db = mongoose.connection.db;
-    const usersCollection = db.collection('users');
-    const activitiesCollection = db.collection('activitylogs');
-    const notificationsCollection = db.collection('notifications');
-    
-    const userCount = await usersCollection.countDocuments();
-    const activeUserCount = await usersCollection.countDocuments({ 
-      isDeleted: { $ne: true },
-      isAutoDeactivated: { $ne: true }
-    });
-    const adminCount = await usersCollection.countDocuments({ role: 'admin' });
-    
-    const activityCount = await activitiesCollection.countDocuments();
-    const notificationCount = await notificationsCollection.countDocuments();
-    
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-    
-    const inactiveUserCount = await usersCollection.countDocuments({
-      lastActivity: { $lt: oneMonthAgo },
-      isDeleted: { $ne: true },
-      isAutoDeactivated: { $ne: true }
-    });
-    
-    res.json({
-      success: true,
-      data: {
-        userMetrics: {
-          total: userCount,
-          active: activeUserCount,
-          inactive: inactiveUserCount,
-          admins: adminCount,
-          deactivated: userCount - activeUserCount
-        },
-        systemMetrics: {
-          activities: activityCount,
-          notifications: notificationCount,
-          systemUptime: process.uptime()
-        },
-        timestamp: new Date()
-      }
-    });
-  } catch (error) {
-    console.error('Error generating system health report:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',

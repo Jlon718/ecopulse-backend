@@ -279,7 +279,7 @@ exports.changePassword = async (req, res) => {
         const user = await User.findByIdAndUpdate(
           userId,
           { 
-            isDeleted: true, // Ensure this is explicitly set to true
+            isDeactivated: true, // Ensure this is explicitly set to true
             email: `deleted_${userId}@removed.user`,
             phone: null,
             // Store original data in new fields
@@ -289,12 +289,12 @@ exports.changePassword = async (req, res) => {
           { new: true }
         );
         
-        // Verify that isDeleted was actually set to true
-        if (!user.isDeleted) {
+        // Verify that isDeactivated was actually set to true
+        if (!user.isDeactivated) {
           // If it wasn't set for some reason, force an update
           await User.updateOne(
             { _id: userId },
-            { $set: { isDeleted: true } }
+            { $set: { isDeactivated: true } }
           );
         }
         
@@ -320,7 +320,7 @@ exports.restoreUser = async (req, res) => {
     // Find the deleted user by ID and ensure it's marked as deleted
     const deletedUser = await User.findOne({
       _id: userId,
-      isDeleted: true
+      isDeactivated: true
     }).select('+originalEmail +originalPhone');
 
     if (!deletedUser) {
@@ -341,8 +341,8 @@ exports.restoreUser = async (req, res) => {
       deletedUser.originalPhone = undefined;
     }
 
-    // Make sure to set isDeleted to false
-    deletedUser.isDeleted = false;
+    // Make sure to set isDeactivated to false
+    deletedUser.isDeactivated = false;
 
     // Save the changes
     await deletedUser.save();
@@ -386,7 +386,7 @@ exports.restoreUser = async (req, res) => {
         email: user.email,
         phone: user.phone || '',
         role: user.role,
-        isDeleted: user.isDeleted || false,
+        isDeactivated: user.isDeactivated || false,
         lastLogin: user.lastLogin
       }));
       
@@ -395,8 +395,8 @@ exports.restoreUser = async (req, res) => {
         users: formattedUsers,
         stats: {
           total: users.length,
-          active: users.filter(user => !user.isDeleted).length,
-          deleted: users.filter(user => user.isDeleted).length
+          active: users.filter(user => !user.isDeactivated).length,
+          deleted: users.filter(user => user.isDeactivated).length
         }
       });
     } catch (error) {

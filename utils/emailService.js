@@ -72,12 +72,24 @@ const sendVerificationEmail = async (user) => {
       throw new Error('Email configuration is missing');
     }
 
+    // Generate verification code
     const verificationCode = generateVerificationCode();
     const expirationTime = new Date(Date.now() + 2 * 60 * 60 * 1000);
 
-    user.verificationCode = verificationCode;
-    user.verificationCodeExpires = expirationTime;
-    await user.save();
+    // Check if user is a Mongoose model instance or a plain object
+    if (typeof user.save === 'function') {
+      // It's a Mongoose model, use save() method
+      user.verificationCode = verificationCode;
+      user.verificationCodeExpires = expirationTime;
+      await user.save();
+    } else {
+      // It's a plain object, use User model to update
+      const User = require('../models/User');
+      await User.findByIdAndUpdate(user._id, {
+        verificationCode: verificationCode,
+        verificationCodeExpires: expirationTime
+      });
+    }
 
     console.log('Attempting to send verification email...');
     const info = await transporter.sendMail({
@@ -182,7 +194,7 @@ const sendAccountRecoveryEmail = async (user, token) => {
     
     // Use environment variable for the frontend URL
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const recoveryUrl = `${baseUrl}/recover-account?token=${token}`;
+    const recoveryUrl = `${baseUrl}/reactivate-account?token=${token}`;
 
     console.log('Sending account recovery email...');
     const info = await transporter.sendMail({
@@ -229,7 +241,7 @@ const sendAutoDeactivationEmail = async (user, reactivationToken) => {
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     
     // Use the reactivationToken parameter correctly
-    const reactivationUrl = `${baseUrl}/recover-account?token=${reactivationToken}`;
+    const reactivationUrl = `${baseUrl}/reactivate-account?token=${reactivationToken}`;
 
     console.log('Sending auto-deactivation email...');
     console.log('Reactivation URL:', reactivationUrl);
@@ -344,6 +356,49 @@ const sendAdminNotification = async (user) => {
   }
 };
 
+const sendReactivationTokenEmail = async (user, reactivationToken) => {
+  try {
+    if (!process.env.EMAIL_FROM || !process.env.EMAIL_USER) {
+      throw new Error('Email configuration is missing');
+    }
+    
+    // Use environment variable for the frontend URL
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const reactivationUrl = `${baseUrl}/reactivate-account?token=${reactivationToken}`;
+
+    console.log('Sending reactivation token email...');
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: user.email,
+      subject: 'Reactivate Your Account - EcoPulse',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #2C7A51;">Reactivate Your Account</h2>
+          <p>Your EcoPulse account has been deactivated. To reactivate your account, please click the link below:</p>
+          
+          <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; text-align: center; margin: 20px 0;">
+            <a href="${reactivationUrl}" style="background-color: #2C7A51; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block;">Reactivate My Account</a>
+          </div>
+          
+          <p>This link will expire in 90 days.</p>
+          <p>If you did not request account reactivation or wish to keep your account deactivated, no action is needed.</p>
+          
+          <p>Thank you,<br>The EcoPulse Team</p>
+        </div>
+      `
+    });
+
+    console.log('Reactivation token email sent successfully:', {
+      messageId: info.messageId,
+      recipient: user.email
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('Error sending reactivation token email:', error);
+    throw new Error(`Failed to send reactivation token email: ${error.message}`);
+  }
+};
 const sendDeactivatedAccountLoginAttemptEmail = async (user) => {
   try {
     console.log('Starting admin notification for deactivated account login:', user.email);
@@ -361,14 +416,14 @@ const sendDeactivatedAccountLoginAttemptEmail = async (user) => {
       console.log('Query criteria:', { 
         role: 'admin', 
         isVerified: true,
-        isDeleted: false,
+        isDeactivated: false,
         isAutoDeactivated: false
       });
       
       const adminUsers = await User.find({ 
         role: 'admin',
         isVerified: true,
-        isDeleted: false,
+        isDeactivated: false,
         isAutoDeactivated: false
       }).select('email firstName lastName');
       
@@ -503,6 +558,7 @@ const sendDeactivatedAccountLoginAttemptEmail = async (user) => {
   }
 };
 
+
 // Verify that the email server is ready
 transporter.verify(function(error, success) {
   if (error) {
@@ -522,5 +578,6 @@ module.exports = {
   sendAutoDeactivationEmail,
   sendReactivationConfirmationEmail,
   sendAdminNotification,
-  sendDeactivatedAccountLoginAttemptEmail
+  sendDeactivatedAccountLoginAttemptEmail,
+  sendReactivationTokenEmail  
 };

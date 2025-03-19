@@ -17,7 +17,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // Get counts from various collections
     const totalUsers = await User.countDocuments();
-    const deactivatedAccounts = await User.countDocuments({ isDeleted: true });
+    const deactivatedAccounts = await User.countDocuments({ isDeactivated: true });
     const recoveredUsers = await ActivityLog.countDocuments({ 
       type: 'account_reactivated', 
       status: 'completed' 
@@ -48,7 +48,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // Get pending recovery requests
     const pendingRecoveries = await User.countDocuments({
-      isDeleted: true,
+      isDeactivated: true,
       recoveryToken: { $ne: null },
       recoveryTokenExpires: { $gt: new Date() }
     });
@@ -123,205 +123,7 @@ exports.getAccountActivities = async (req, res) => {
 };
 
 // Mark activity as read
-exports.markActivityAsRead = async (req, res) => {
-  try {
-    const { activityId } = req.params;
 
-    // Verify admin role
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin role required.'
-      });
-    }
-
-    // Validate activity ID
-    if (!mongoose.Types.ObjectId.isValid(activityId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid activity ID'
-      });
-    }
-
-    // Update activity
-    const result = await ActivityLog.findByIdAndUpdate(
-      activityId,
-      { read: true },
-      { new: true }
-    );
-
-    if (!result) {
-      return res.status(404).json({
-        success: false,
-        message: 'Activity not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Activity marked as read',
-      data: result
-    });
-  } catch (error) {
-    console.error('Error marking activity as read:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// Mark all activities as read
-exports.markAllActivitiesAsRead = async (req, res) => {
-  try {
-    // Verify admin role
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin role required.'
-      });
-    }
-
-    // Update all unread activities
-    const result = await ActivityLog.updateMany(
-      { read: false },
-      { read: true }
-    );
-
-    res.json({
-      success: true,
-      message: `${result.modifiedCount} activities marked as read`,
-      modifiedCount: result.modifiedCount
-    });
-  } catch (error) {
-    console.error('Error marking all activities as read:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// Get admin notifications
-exports.getNotifications = async (req, res) => {
-  try {
-    // Verify admin role
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin role required.'
-      });
-    }
-
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    // Get notifications
-    const notifications = await Notification.find({ recipient: req.user.userId })
-      .sort({ timestamp: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    // Get total count for pagination
-    const total = await Notification.countDocuments({ recipient: req.user.userId });
-
-    res.json({
-      success: true,
-      data: {
-        notifications,
-        pagination: {
-          total,
-          page,
-          pages: Math.ceil(total / limit),
-          limit
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Error getting notifications:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// Mark notification as read
-exports.markNotificationAsRead = async (req, res) => {
-  try {
-    const { notificationId } = req.params;
-
-    // Verify ownership or admin role
-    const notification = await Notification.findById(notificationId);
-    
-    if (!notification) {
-      return res.status(404).json({
-        success: false,
-        message: 'Notification not found'
-      });
-    }
-
-    if (notification.recipient.toString() !== req.user.userId && req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
-      });
-    }
-
-    // Update notification
-    notification.read = true;
-    await notification.save();
-
-    res.json({
-      success: true,
-      message: 'Notification marked as read',
-      data: notification
-    });
-  } catch (error) {
-    console.error('Error marking notification as read:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// Mark all notifications as read
-exports.markAllNotificationsAsRead = async (req, res) => {
-  try {
-    // Verify admin role
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin role required.'
-      });
-    }
-
-    // Update all unread notifications for this user
-    const result = await Notification.updateMany(
-      { recipient: req.user.userId, read: false },
-      { read: true }
-    );
-
-    res.json({
-      success: true,
-      message: `${result.modifiedCount} notifications marked as read`,
-      modifiedCount: result.modifiedCount
-    });
-  } catch (error) {
-    console.error('Error marking all notifications as read:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
 
 // Get detailed account activity report (for export)
 exports.getActivityReport = async (req, res) => {

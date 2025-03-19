@@ -40,7 +40,7 @@ async function deactivateInactiveAccounts() {
     const inactiveUsers = await usersCollection.find({
       lastActivity: { $lt: thirtyDaysAgo },
       isAutoDeactivated: { $ne: true },
-      isDeleted: { $ne: true }
+      isDeactivated: { $ne: true }
     }).toArray();
     
     console.log(`Found ${inactiveUsers.length} inactive accounts to deactivate`);

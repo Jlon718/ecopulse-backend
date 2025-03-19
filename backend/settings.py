@@ -28,6 +28,7 @@ DEBUG = True
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
+    '127.0.0.0'
     '10.0.2.2',  # Android emulator
     '10.0.3.2',  # Genymotion emulator
     '192.168.1.3',  # Your computer's IP
