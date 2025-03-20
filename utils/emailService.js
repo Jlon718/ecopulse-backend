@@ -399,7 +399,7 @@ const sendReactivationTokenEmail = async (user, reactivationToken) => {
     throw new Error(`Failed to send reactivation token email: ${error.message}`);
   }
 };
-const sendDeactivatedAccountLoginAttemptEmail = async (user) => {
+const sendDeactivatedLoginAttempt = async (user) => {
   try {
     console.log('Starting admin notification for deactivated account login:', user.email);
     
@@ -578,6 +578,6 @@ module.exports = {
   sendAutoDeactivationEmail,
   sendReactivationConfirmationEmail,
   sendAdminNotification,
-  sendDeactivatedAccountLoginAttemptEmail,
+  sendDeactivatedLoginAttempt,
   sendReactivationTokenEmail  
 };

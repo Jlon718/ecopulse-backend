@@ -13,7 +13,7 @@ const {
   sendReactivationConfirmationEmail 
 } = require('../utils/emailService');
 const crypto = require("crypto");
-const { sendDeactivatedAccountLoginAttemptEmail, sendAutoDeactivationEmail } = require('../utils/emailService');
+const { sendDeactivatedAccountLoginAttemptEmail, sendAutoDeactivationEmail, sendDeactivatedLoginAttempt } = require('../utils/emailService');
 
 
 exports.register = async (req, res) => {
@@ -151,11 +151,9 @@ exports.register = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
-    // Extract email and password from request body
     const { email, password } = req.body;
     console.log(`Login attempt for email: ${email}`);
 
-    // Validate required fields
     if (!email || !password) {
       return res.status(400).json({ 
         success: false, 
@@ -163,50 +161,29 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Try to find the user regardless of isDeactivated status first
-    // Use a direct MongoDB query to bypass any Mongoose filters
     const db = mongoose.connection.db;
     const usersCollection = db.collection('users');
     const rawUser = await usersCollection.findOne({ email: email });
     
-    console.log("Raw DB query result:", rawUser ? {
-      id: rawUser._id.toString(),
-      email: rawUser.email,
-      isDeactivated: !!rawUser.isDeactivated,
-      isAutoDeactivated: !!rawUser.isAutoDeactivated,
-      hasPassword: !!rawUser.password
-    } : "No user found");
-
-    // If no user found at all, return invalid credentials
     if (!rawUser) {
       return res.status(400).json({ success: false, message: "Invalid credentials" });
     }
 
-    // Check if account is auto-deactivated
-    if (rawUser.isAutoDeactivated === true) {
-      console.log("Found auto-deactivated account for login:", rawUser.email);
+    // Handle both manual and automatic deactivation
+    if (rawUser.isDeactivated || rawUser.isAutoDeactivated) {
+      console.log("Found deactivated account for login:", rawUser.email);
       
-      // Check if the password matches
       const isMatch = await bcrypt.compare(password, rawUser.password);
       if (!isMatch) {
         return res.status(400).json({ success: false, message: "Invalid credentials" });
       }
-      
-      // Password matches, but DO NOT reactivate
-      // Instead, send notification email for login attempt on deactivated account
-      try {
-        await sendDeactivatedAccountLoginAttemptEmail(rawUser);
-        console.log("Notification email sent for deactivated account login attempt");
-      } catch (emailError) {
-        console.error("Error sending notification email:", emailError);
-      }
-      
-      // Generate a reactivation token
+
+      // Generate reactivation token
       const crypto = require('crypto');
       const reactivationToken = crypto.randomBytes(32).toString("hex");
-      const tokenExpires = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
+      const tokenExpires = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
       
-      // Store token in database
+      // Update user record
       await usersCollection.updateOne(
         { _id: rawUser._id },
         { 
@@ -219,45 +196,31 @@ exports.login = async (req, res) => {
         }
       );
       
-      // Send reactivation email with token
       try {
+        // Send reactivation email to user
         await sendAutoDeactivationEmail(rawUser, reactivationToken);
-        console.log("Reactivation email with token sent");
+        console.log("Reactivation email sent for deactivated account");
+
+        // Notify admin about the login attempt
+        await sendDeactivatedLoginAttempt(rawUser);
+        console.log("Admin notified about deactivated account login attempt");
       } catch (emailError) {
-        console.error("Error sending reactivation email:", emailError);
+        console.error("Error sending emails:", emailError);
       }
       
-      // Return response informing user to check email
       return res.status(403).json({
         success: false,
         message: "Your account has been deactivated. A reactivation link has been sent to your email.",
-        isAutoDeactivated: true,
+        isDeactivated: true,
         email: rawUser.email
       });
     }
 
-    // If we found a raw user with isDeactivated=true, reject login
-    if (rawUser.isDeactivated === true) {
-      console.log("Found deleted account through raw query:", rawUser.email);
-      return res.status(400).json({ 
-        success: false, 
-        message: "This account has been deleted and cannot be used." 
-      });
-    }
-
-    // Continue with normal flow using the raw user data
-    // Check password match
+    // Rest of normal login flow
     const isMatch = await bcrypt.compare(password, rawUser.password);
     if (!isMatch) {
       return res.status(400).json({ success: false, message: "Invalid credentials" });
     }
-
-    // Log the actual verification status from the database
-    console.log('User verification status from database:', {
-      email: rawUser.email,
-      isVerified: rawUser.isVerified,
-      verificationCode: rawUser.verificationCode || 'none'
-    });
 
     // Update last login and activity time
     await usersCollection.updateOne(
@@ -269,15 +232,12 @@ exports.login = async (req, res) => {
       }
     );
 
-    // For token generation, convert raw user to Mongoose model
-    // This is needed because generateTokens expects a Mongoose model
+    // Generate tokens
     const User = mongoose.model('User');
     const user = new User(rawUser);
-
-    // Generate tokens using the utility function
     const { accessToken } = generateTokens(user, res);
 
-    // Prepare response data
+    // Prepare response
     const responseData = {
       success: true,
       message: "Login successful",
@@ -290,18 +250,13 @@ exports.login = async (req, res) => {
         avatar: rawUser.avatar || "default-avatar",
         role: rawUser.role,
         lastLogin: new Date(),
-        // IMPORTANT: Explicitly set isVerified based on database value
         isVerified: rawUser.isVerified === true,
         accessToken
       }
     };
     
-    // Log the response before sending
-    console.log('Sending login response:', JSON.stringify(responseData));
-
-    // Check if user is NOT verified and only then add requireVerification flag
+    // Handle unverified accounts
     if (rawUser.isVerified !== true) {
-      // Resend verification email
       try {
         await sendVerificationEmail(rawUser);
         console.log("Verification email resent");
@@ -313,7 +268,6 @@ exports.login = async (req, res) => {
       responseData.message = "Your account is not verified. We've sent a new verification code to your email.";
     }
 
-    // Send the response
     res.json(responseData);
   } catch (error) {
     console.error("Login Error:", error.message);
@@ -568,7 +522,7 @@ exports.googleSignIn = async (req, res) => {
       console.log("Found deleted account:", email);
       return res.status(400).json({
         success: false,
-        message: "This account has been permanently deleted and cannot be used."
+        message: "Your account has been deactivated a recovery link will be sent shortly"
       });
     }
 
