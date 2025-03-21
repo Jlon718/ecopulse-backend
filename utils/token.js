@@ -26,10 +26,11 @@ const generateTokens = (user, res = null) => {
     firstName: user.firstName,
     lastName: user.lastName,
     email: user.email,
-    phone: user.phone || "",
+    // phone: user.phone || "", // Remove this line as it's not in your schema
     role: user.role,
     isVerified: user.isVerified || false,
-    profilePicture: user.profilePicture || "",
+    avatar: user.avatar || "default-avatar", // Change from profilePicture to avatar
+    gender: user.gender || "prefer-not-to-say", // Add this field from schema
     lastLogin: user.lastLogin || new Date(),
     googleId: user.googleId || null,
     createdAt: user.createdAt || new Date(),

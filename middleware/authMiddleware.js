@@ -48,7 +48,7 @@ module.exports = async (req, res, next) => {
     }
 
     // Add soft-deleted user check
-    if (user.isDeleted) {
+    if (user.isDeactivated) {
       return res.status(403).json({
         success: false,
         message: "Account has been deactivated"
@@ -57,7 +57,8 @@ module.exports = async (req, res, next) => {
 
     // Set user data on request
     req.user = {
-      userId: user._id,
+      id: user._id,  // Change userId to id
+      userId: user._id,  // Keep this for backward compatibility
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,

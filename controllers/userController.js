@@ -1,7 +1,7 @@
 
   const User = require("../models/User");
   const mongoose = require("mongoose"); // Make sure to import mongoose
-
+  const bcrypt = require("bcryptjs");
   exports.getAllUsers = async (req, res) => {
       try {
         const users = await User.find()
@@ -116,7 +116,7 @@
     exports.updateUserProfile = async (req, res) => {
       try {
         const userId = req.params.id;
-        const { firstName, lastName, email, phone } = req.body;
+        const { firstName, lastName, email, phone, gender, avatar } = req.body;
         
         // Prevent email duplication check against other users
         if (email) {
@@ -133,6 +133,17 @@
           }
         }
         
+        // Validate gender if provided
+        if (gender) {
+          const validGenders = ["male", "female", "non-binary", "transgender", "other", "prefer-not-to-say"];
+          if (!validGenders.includes(gender)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid gender option"
+            });
+          }
+        }
+        
         // Find and update user
         const updatedUser = await User.findByIdAndUpdate(
           userId,
@@ -140,7 +151,10 @@
             ...(firstName && { firstName }),
             ...(lastName && { lastName }),
             ...(email && { email }),
-            ...(phone !== undefined && { phone })
+            ...(phone !== undefined && { phone }),
+            ...(gender && { gender }),
+            ...(avatar && { avatar }),
+            lastActivity: new Date() // Update last activity time
           },
           { new: true }
         ).select('-password');
@@ -161,6 +175,8 @@
             lastName: updatedUser.lastName,
             email: updatedUser.email,
             phone: updatedUser.phone || "",
+            gender: updatedUser.gender,
+            avatar: updatedUser.avatar,
             role: updatedUser.role
           }
         });
@@ -175,50 +191,70 @@
     };
     
     // Change password
-    exports.changePassword = async (req, res) => {
-      try {
-        const userId = req.params.id;
-        const { currentPassword, newPassword } = req.body;
-        
-        // Find user with password
-        const user = await User.findById(userId);
-        
-        if (!user) {
-          return res.status(404).json({
-            success: false,
-            message: "User not found"
-          });
-        }
-        
-        // Verify current password
-        const isMatch = await bcrypt.compare(currentPassword, user.password);
-        if (!isMatch) {
-          return res.status(400).json({
-            success: false,
-            message: "Current password is incorrect"
-          });
-        }
-        
-        // Hash new password
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
-        
-        // Update password
-        user.password = hashedPassword;
-        await user.save();
-        
-        res.json({
-          success: true,
-          message: "Password updated successfully"
-        });
-      } catch (error) {
-        console.error("Error changing password:", error);
-        res.status(500).json({
-          success: false,
-          message: "Server Error",
-          error: error.message
-        });
-      }
-    };
+exports.changePassword = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { currentPassword, newPassword } = req.body;
+    
+    console.log("Change password request for user:", userId);
+    
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+    
+    // Find user with password - IMPORTANT: Include password in the query
+    const user = await User.findById(userId).select('+password');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+    
+    // Check if password exists in the user object
+    if (!user.password) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot change password for this account type"
+      });
+    }
+    
+    console.log("User found, attempting password comparison");
+    
+    // Verify current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password is incorrect"
+      });
+    }
+    
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Update password
+    user.password = hashedPassword;
+    user.lastActivity = new Date();
+    await user.save();
+    
+    res.json({
+      success: true,
+      message: "Password updated successfully"
+    });
+  } catch (error) {
+    console.error("Error changing password:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message
+    });
+  }
+};
     
     // Soft delete user
     exports.softDeleteUser = async (req, res) => {
@@ -243,7 +279,7 @@
         const user = await User.findByIdAndUpdate(
           userId,
           { 
-            isDeleted: true, // Ensure this is explicitly set to true
+            isDeactivated: true, // Ensure this is explicitly set to true
             email: `deleted_${userId}@removed.user`,
             phone: null,
             // Store original data in new fields
@@ -253,12 +289,12 @@
           { new: true }
         );
         
-        // Verify that isDeleted was actually set to true
-        if (!user.isDeleted) {
+        // Verify that isDeactivated was actually set to true
+        if (!user.isDeactivated) {
           // If it wasn't set for some reason, force an update
           await User.updateOne(
             { _id: userId },
-            { $set: { isDeleted: true } }
+            { $set: { isDeactivated: true } }
           );
         }
         
@@ -284,7 +320,7 @@ exports.restoreUser = async (req, res) => {
     // Find the deleted user by ID and ensure it's marked as deleted
     const deletedUser = await User.findOne({
       _id: userId,
-      isDeleted: true
+      isDeactivated: true
     }).select('+originalEmail +originalPhone');
 
     if (!deletedUser) {
@@ -305,8 +341,8 @@ exports.restoreUser = async (req, res) => {
       deletedUser.originalPhone = undefined;
     }
 
-    // Make sure to set isDeleted to false
-    deletedUser.isDeleted = false;
+    // Make sure to set isDeactivated to false
+    deletedUser.isDeactivated = false;
 
     // Save the changes
     await deletedUser.save();
@@ -350,7 +386,7 @@ exports.restoreUser = async (req, res) => {
         email: user.email,
         phone: user.phone || '',
         role: user.role,
-        isDeleted: user.isDeleted || false,
+        isDeactivated: user.isDeactivated || false,
         lastLogin: user.lastLogin
       }));
       
@@ -359,8 +395,8 @@ exports.restoreUser = async (req, res) => {
         users: formattedUsers,
         stats: {
           total: users.length,
-          active: users.filter(user => !user.isDeleted).length,
-          deleted: users.filter(user => user.isDeleted).length
+          active: users.filter(user => !user.isDeactivated).length,
+          deleted: users.filter(user => user.isDeactivated).length
         }
       });
     } catch (error) {
@@ -402,41 +438,57 @@ exports.restoreUser = async (req, res) => {
   };
 
 
-
-
-
-
-
-
-
-
-
-
-    //authnticated getalluser
-  //   exports.getAllUsers = async (req, res) => {
-  //     try {
-  //       // Fix 2: Check if req.user exists
-  //       if (!req.user || req.user.role !== 'admin') {
-  //         return res.status(403).json({
-  //           success: false,
-  //           message: "Unauthorized. Admin access required"
-  //         });
-  //       }
-    
-  //       const users = await User.find().select('-password');
-    
-  //       res.json({
-  //         success: true,
-  //         count: users.length,
-  //         users
-  //       });
-  //     } catch (error) {
-  //       console.error("error fetching users:", error);
-  //       res.status(500).json({
-  //         success: false,
-  //         message: "Server Error",
-  //         error: error.message
-  //       });
-  //     }
-  //   };
-    
+  exports.updateOnboarding = async (req, res) => {
+    try {
+      const { gender, avatar, hasCompletedOnboarding } = req.body;
+      const userId = req.user.id || req.user.userId;
+      
+      console.log('Onboarding update request:', {
+        userId,
+        gender,
+        avatarLength: avatar ? avatar.length : 0,
+        hasCompletedOnboarding
+      });
+      
+      // Check if we have a valid user ID
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User ID not found in request"
+        });
+      }
+      
+      // Update the user
+      const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        {
+          gender,
+          avatar,  // This should now always be a Cloudinary URL
+          hasCompletedOnboarding,
+          lastActivity: new Date()
+        },
+        { new: true }
+      ).select('-password');
+      
+      if (!updatedUser) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+      
+      res.status(200).json({
+        success: true,
+        message: 'Profile updated successfully',
+        user: updatedUser
+      });
+    } catch (error) {
+      console.error('Onboarding update error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error',
+        error: error.message
+      });
+    }
+  };
+  
