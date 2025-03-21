@@ -319,13 +319,14 @@ def peertopeer_records(request):
             'message': str(e)
         }, status=500)
 
+@csrf_exempt
 def peertopeer_record_detail(request, record_id):
     """
     Endpoints to fetch, update, or delete a specific peer-to-peer energy record from MongoDB
     """
     try:
-        # Get MongoDB collection
-        collection = connect_to_mongodb()
+        # Get MongoDB collection - fix to use peertopeer collection
+        collection = connect_to_mongodb_peertopeer()
         
         # Convert string ID to MongoDB ObjectId
         object_id = ObjectId(record_id)
@@ -351,11 +352,17 @@ def peertopeer_record_detail(request, record_id):
             
         elif request.method == 'PUT' or request.method == 'PATCH':
             # Parse request body
+            print(f"Processing PUT request for record {record_id}")
+            print(f"Request body: {request.body}")
+            
             data = json.loads(request.body)
             
             # Remove _id field if it exists
             if '_id' in data:
                 del data['_id']
+            
+            # Log the update operation
+            logger.debug(f"Updating record {record_id} with data: {data}")
                 
             # Update record
             result = collection.update_one({'_id': object_id}, {'$set': data})
@@ -396,8 +403,9 @@ def peertopeer_record_detail(request, record_id):
             
     except Exception as e:
         # Log the error
-        import logging
-        logging.error(f"Error in peertopeer_record_detail: {str(e)}")
+        logger.error(f"Error in peertopeer_record_detail: {str(e)}")
+        logger.error(f"Request method: {request.method}")
+        logger.error(f"Request headers: {request.headers}")
         
         # Return error response
         return JsonResponse({
