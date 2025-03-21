@@ -2,7 +2,7 @@
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 from linearregression_predictiveanalysis import get_predictions, create, connect_to_mongodb  # Import the function here
-from peertopeer import get_peer_to_predictions
+from peertopeer import get_peer_to_predictions, createPeertoPeer, connect_to_mongodb_peertopeer
 from recommendations import get_solar_recommendations
 import logging
 from django.views.decorators.csrf import csrf_exempt
@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 import json
 from django.views.decorators.http import require_http_methods
+from bson import ObjectId
 
 # Configure the logger
 logging.basicConfig(level=logging.DEBUG)
@@ -124,6 +125,19 @@ class CreateView(View):
             return JsonResponse({'status': 'success', 'message': 'Data inserted successfully'})
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+        
+@method_decorator(csrf_exempt, name='dispatch')
+class CreateViewPeertoPeer(View):
+    def post(self, request):
+        """
+        API endpoint to insert actual data into MongoDB.
+        """
+        try:
+            data = json.loads(request.body)
+            createPeertoPeer(data)
+            return JsonResponse({'status': 'success', 'message': 'Data inserted successfully'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 @require_http_methods(["PUT"])
 @csrf_exempt
@@ -230,3 +244,163 @@ def recover_record(request, year):
     except Exception as e:
         logger.error(f"Error recovering record: {e}")
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+# MongoDB API endpoints for peer-to-peer data
+def peertopeer_records(request):
+    """
+    Endpoints to fetch, create, and list peer-to-peer energy records from MongoDB
+    """
+    try:
+        # Get MongoDB collection
+        collection = connect_to_mongodb_peertopeer()
+        
+        if request.method == 'GET':
+            # Extract parameters
+            start_year = request.GET.get('startYear')
+            end_year = request.GET.get('endYear')
+            
+            # Build query
+            query = {}
+            if start_year and end_year:
+                # Check both year and Year fields to be compatible with different formats
+                start_year = int(start_year)
+                end_year = int(end_year)
+                query = {
+                    "$or": [
+                        {"year": {"$gte": start_year, "$lte": end_year}},
+                        {"Year": {"$gte": start_year, "$lte": end_year}}
+                    ]
+                }
+            
+            # Fetch records
+            records_cursor = collection.find(query)
+            records = []
+            
+            # Process each record
+            for record in records_cursor:
+                # Convert ObjectId to string for JSON serialization
+                record['_id'] = str(record['_id'])
+                records.append(record)
+            
+            # Return records as JSON response
+            return JsonResponse({
+                'status': 'success',
+                'records': records
+            })
+            
+        elif request.method == 'POST':
+            # Parse request body
+            data = json.loads(request.body)
+            
+            # Insert new record
+            result = collection.insert_one(data)
+            
+            # Return success response with new record ID
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Record created successfully',
+                'id': str(result.inserted_id)
+            })
+            
+        else:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Method not allowed'
+            }, status=405)
+            
+    except Exception as e:
+        # Log the error
+        import logging
+        logging.error(f"Error in peertopeer_records: {str(e)}")
+        
+        # Return error response
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
+
+def peertopeer_record_detail(request, record_id):
+    """
+    Endpoints to fetch, update, or delete a specific peer-to-peer energy record from MongoDB
+    """
+    try:
+        # Get MongoDB collection
+        collection = connect_to_mongodb()
+        
+        # Convert string ID to MongoDB ObjectId
+        object_id = ObjectId(record_id)
+        
+        if request.method == 'GET':
+            # Fetch record
+            record = collection.find_one({'_id': object_id})
+            
+            if not record:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'Record not found'
+                }, status=404)
+                
+            # Convert ObjectId to string for JSON serialization
+            record['_id'] = str(record['_id'])
+            
+            # Return record as JSON response
+            return JsonResponse({
+                'status': 'success',
+                'record': record
+            })
+            
+        elif request.method == 'PUT' or request.method == 'PATCH':
+            # Parse request body
+            data = json.loads(request.body)
+            
+            # Remove _id field if it exists
+            if '_id' in data:
+                del data['_id']
+                
+            # Update record
+            result = collection.update_one({'_id': object_id}, {'$set': data})
+            
+            if result.matched_count == 0:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'Record not found'
+                }, status=404)
+                
+            # Return success response
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Record updated successfully'
+            })
+            
+        elif request.method == 'DELETE':
+            # Delete record
+            result = collection.delete_one({'_id': object_id})
+            
+            if result.deleted_count == 0:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'Record not found'
+                }, status=404)
+                
+            # Return success response
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Record deleted successfully'
+            })
+            
+        else:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Method not allowed'
+            }, status=405)
+            
+    except Exception as e:
+        # Log the error
+        import logging
+        logging.error(f"Error in peertopeer_record_detail: {str(e)}")
+        
+        # Return error response
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
