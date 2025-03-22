@@ -9,7 +9,9 @@ from .views import (
     recover_record, 
     CreateViewPeertoPeer,
     peertopeer_records,
-    peertopeer_record_detail
+    peertopeer_record_detail,
+    add_recommendation,
+    recommendation_record_detail
 )
 
 urlpatterns = [
@@ -22,5 +24,7 @@ urlpatterns = [
     path('delete/<int:year>/', delete_record, name='delete_record'),
     path('recover/<int:year>/', recover_record, name='recover_record'),
     path('peertopeer/records', peertopeer_records, name='peertopeer_records'),
-    path('peertopeer/records/<str:record_id>', peertopeer_record_detail, name='peertopeer_record_detail')
+    path('peertopeer/records/<str:record_id>', peertopeer_record_detail, name='peertopeer_record_detail'),
+    path('add/recommendations', add_recommendation, name='recommendation_records'),
+    path('add/recommendations/<str:record_id>', recommendation_record_detail, name='recommendation_record_detail')
 ]

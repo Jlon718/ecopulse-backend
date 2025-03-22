@@ -3,7 +3,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 from linearregression_predictiveanalysis import get_predictions, create, connect_to_mongodb  # Import the function here
 from peertopeer import get_peer_to_predictions, createPeertoPeer, connect_to_mongodb_peertopeer
-from recommendations import get_solar_recommendations
+from recommendations import get_solar_recommendations, recommendation_records, connect_to_mongodb_recommendation
 import logging
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -11,6 +11,7 @@ from django.views import View
 import json
 from django.views.decorators.http import require_http_methods
 from bson import ObjectId
+from pymongo import MongoClient
 
 # Configure the logger
 logging.basicConfig(level=logging.DEBUG)
@@ -406,6 +407,166 @@ def peertopeer_record_detail(request, record_id):
         logger.error(f"Error in peertopeer_record_detail: {str(e)}")
         logger.error(f"Request method: {request.method}")
         logger.error(f"Request headers: {request.headers}")
+        
+        # Return error response
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
+        
+@csrf_exempt
+def add_recommendation(request):
+    """
+    Endpoints to fetch and create recommendation records
+    """
+    try:
+        collection = connect_to_mongodb_recommendation()
+        
+        if request.method == 'GET':
+            # Extract parameters for potential filtering
+            year = request.GET.get('year')
+            
+            # Build query
+            query = {}
+            if year:
+                query["Year"] = int(year)
+            
+            # Fetch records
+            records_cursor = collection.find(query)
+            records = []
+            
+            # Process each record
+            for record in records_cursor:
+                # Convert ObjectId to string for JSON serialization
+                record['_id'] = str(record['_id'])
+                records.append(record)
+            
+            return JsonResponse({
+                'status': 'success',
+                'records': records
+            })
+            
+        elif request.method == 'POST':
+            # Parse request body
+            data = json.loads(request.body)
+            
+            # Ensure Year is stored as integer
+            if 'Year' in data:
+                data['Year'] = int(data['Year'])
+                
+            # Insert new record
+            result = collection.insert_one(data)
+            
+            # Return success response with new record ID
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Recommendation created successfully',
+                'id': str(result.inserted_id)
+            })
+            
+        else:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Method not allowed'
+            }, status=405)
+            
+    except Exception as e:
+        # Log the error
+        logger.error(f"Error in recommendation_records: {str(e)}")
+        
+        # Return error response
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
+
+@csrf_exempt
+def recommendation_record_detail(request, record_id):
+    """
+    Endpoints to fetch, update, or delete a specific recommendation record from MongoDB
+    """
+    try:
+        # Get MongoDB collection
+        collection = connect_to_mongodb_recommendation()
+        
+        # Convert string ID to MongoDB ObjectId
+        object_id = ObjectId(record_id)
+        
+        if request.method == 'GET':
+            # Fetch record
+            record = collection.find_one({'_id': object_id})
+            
+            if not record:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'Recommendation record not found'
+                }, status=404)
+                
+            # Convert ObjectId to string for JSON serialization
+            record['_id'] = str(record['_id'])
+            
+            # Return record as JSON response
+            return JsonResponse({
+                'status': 'success',
+                'record': record
+            })
+            
+        elif request.method == 'PUT' or request.method == 'PATCH':
+            # Parse request body
+            logger.debug(f"Processing PUT request for recommendation record {record_id}")
+            data = json.loads(request.body)
+            
+            # Remove _id field if it exists
+            if '_id' in data:
+                del data['_id']
+            
+            # Ensure Year is stored as integer
+            if 'Year' in data:
+                data['Year'] = int(data['Year'])
+            
+            # Log the update operation
+            logger.debug(f"Updating recommendation record {record_id} with data: {data}")
+                
+            # Update record
+            result = collection.update_one({'_id': object_id}, {'$set': data})
+            
+            if result.matched_count == 0:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'Recommendation record not found'
+                }, status=404)
+                
+            # Return success response
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Recommendation record updated successfully'
+            })
+            
+        elif request.method == 'DELETE':
+            # Delete record
+            result = collection.delete_one({'_id': object_id})
+            
+            if result.deleted_count == 0:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'Recommendation record not found'
+                }, status=404)
+                
+            # Return success response
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Recommendation record deleted successfully'
+            })
+            
+        else:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Method not allowed'
+            }, status=405)
+            
+    except Exception as e:
+        # Log the error
+        logger.error(f"Error in recommendation_record_detail: {str(e)}")
         
         # Return error response
         return JsonResponse({
