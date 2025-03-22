@@ -25,15 +25,35 @@ SECRET_KEY = 'django-insecure-lh&mm0n5y9n5q02tcyd0jd1)gb7_i1j3q!&25y19zc!ebuufpm
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    '127.0.0.0'
-    '10.0.2.2',  # Android emulator
-    '10.0.3.2',  # Genymotion emulator
-    '192.168.1.3',  # Your computer's IP
-    '192.168.121.118',  # Your computer's IP
-    '192.168.1.2',  # Add this line
+ALLOWED_HOSTS = ['*']  # Allow all hosts in development; restrict in production
+
+# CORS Settings - Update to be more permissive for development
+CORS_ALLOW_ALL_ORIGINS = True  # For development only
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+# Ensure CSRF settings are properly configured for cross-domain requests
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
 
@@ -47,14 +67,15 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'backend',
-    'corsheaders',
-    'django_extensions'
+    'corsheaders',  # Add corsheaders app
+    'django_extensions',
+    'api',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # Add CORS middleware at the top
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',

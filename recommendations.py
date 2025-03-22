@@ -4,6 +4,11 @@ from scipy.optimize import curve_fit
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 import os
+import logging
+from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure
+import json
+from django.views.decorators.csrf import csrf_exempt
 
 # Load dataset
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -122,3 +127,115 @@ def get_solar_recommendations(year, budget):
         'future_projections': future_projections,
         'cost_benefit_analysis': cost_benefit_analysis
     }
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+# MongoDB connection details
+MONGO_URI = os.getenv("MONGO_URL")  # Load MongoDB URI from environment variables
+DATABASE_NAME = "ecopulse"  # Database name
+RECOMMENDATION_COLLECTION = "recommendation"  # Collection name for recommendations
+
+def connect_to_mongodb_recommendation(retries=3, delay=5):
+    """
+    Connect to MongoDB Atlas and return the recommendations collection.
+    Retries the connection in case of failure.
+    
+    Parameters:
+        retries (int): Number of connection attempts to make
+        delay (int): Seconds to wait between retries
+        
+    Returns:
+        pymongo.collection.Collection: The MongoDB collection for recommendations
+    """
+    for attempt in range(retries):
+        try:
+            client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+            db = client[DATABASE_NAME]
+            collection = db[RECOMMENDATION_COLLECTION]
+            # Attempt to ping the server to check the connection
+            client.admin.command('ping')
+            logger.debug("Connected to MongoDB Atlas recommendations successfully.")
+            return collection
+        except ConnectionFailure as e:
+            logger.error(f"Error connecting to MongoDB recommendations (attempt {attempt + 1}): {e}")
+            if attempt < retries - 1:
+                time.sleep(delay)
+            else:
+                raise
+
+@csrf_exempt
+def recommendation_records(request):
+    """
+    Handle operations for recommendation records.
+    
+    GET: Fetch recommendation records, optionally filtered by year
+    POST: Create a new recommendation record
+    
+    Parameters:
+        request (HttpRequest): The Django HTTP request object
+        
+    Returns:
+        JsonResponse: JSON response with operation status and data
+    """
+    try:
+        collection = connect_to_mongodb_recommendation()
+        
+        if request.method == 'GET':
+            # Extract parameters for potential filtering
+            year = request.GET.get('year')
+            
+            # Build query
+            query = {}
+            if year:
+                query["Year"] = int(year)
+            
+            # Fetch records
+            records_cursor = collection.find(query)
+            records = []
+            
+            # Process each record
+            for record in records_cursor:
+                # Convert ObjectId to string for JSON serialization
+                record['_id'] = str(record['_id'])
+                records.append(record)
+            
+            return JsonResponse({
+                'status': 'success',
+                'records': records
+            })
+            
+        elif request.method == 'POST':
+            # Parse request body
+            data = json.loads(request.body)
+            
+            # Ensure Year is stored as integer
+            if 'Year' in data:
+                data['Year'] = int(data['Year'])
+                
+            # Insert new record
+            result = collection.insert_one(data)
+            
+            # Return success response with new record ID
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Recommendation created successfully',
+                'id': str(result.inserted_id)
+            })
+            
+        else:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Method not allowed'
+            }, status=405)
+            
+    except Exception as e:
+        # Log the error
+        logger.error(f"Error in recommendation_records: {str(e)}")
+        
+        # Return error response
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
