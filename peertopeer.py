@@ -17,7 +17,7 @@ file_path = os.path.join(script_dir, 'peertopeer.xlsx')
 df = pd.read_excel(file_path)
 
 # MongoDB connection
-MONGO_URI = os.getenv("MONGO_URL")  # Load MongoDB URI from environment variables
+MONGO_URI = os.getenv("MONGODB_URI")  # Load MongoDB URI from environment variables
 DATABASE_NAME = "ecopulse"  # Replace with your database name
 COLLECTION_NAME = "peertopeer"  # Replace with your collection name
 

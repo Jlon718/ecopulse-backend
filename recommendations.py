@@ -4,6 +4,7 @@ from scipy.optimize import curve_fit
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 import os
+import time
 import logging
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
@@ -133,7 +134,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # MongoDB connection details
-MONGO_URI = os.getenv("MONGO_URL")  # Load MongoDB URI from environment variables
+MONGO_URI = os.getenv("MONGODB_URI")  # Load MongoDB URI from environment variables
 DATABASE_NAME = "ecopulse"  # Database name
 RECOMMENDATION_COLLECTION = "recommendation"  # Collection name for recommendations
 
