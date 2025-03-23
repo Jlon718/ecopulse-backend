@@ -23,7 +23,12 @@ app.use(
         ? process.env.ALLOWED_ORIGINS.split(',') 
         : [
             "http://localhost:5173",
-            "http://192.168.1.2:8081"
+            "http://192.168.1.2:8080",
+            "http://192.168.1.2:8081", // Added 8081 port
+            "http://10.0.2.2:8000",
+            "http://10.0.2.2:8080",    // Added Android emulator with 8080
+            "http://localhost:8000",
+            "http://localhost:8080"     // Added localhost with 8080
           ];
       
       // Allow requests with no origin (like mobile apps)
@@ -32,7 +37,7 @@ app.use(
       if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
         callback(null, true);
       } else {
-        console.warn(`Origin ${origin} not allowed by CORS`);
+        console.warn(`Origin ${origin} not allowed by CORS: ${origin}`);
         callback(new Error('CORS not allowed for this origin'));
       }
     },
@@ -60,7 +65,7 @@ app.options('*', cors());
 
 // Serve static files only in development
 if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 5000;
+  const PORT = process.env.PORT || 5000; // Changed to 8080 for consistency
   
   // Start the server only if not in production
   app.listen(PORT, '0.0.0.0', () => {

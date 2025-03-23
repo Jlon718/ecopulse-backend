@@ -371,7 +371,7 @@ exports.restoreUser = async (req, res) => {
 
 
   // Get all users including deleted ones (admin only)
-  exports.getAllUsersWithDeleted = async (req, res) => {
+  exports.getAllDeactivated= async (req, res) => {
     try {
       // Use a raw find query without the middleware filter
       const users = await User.find({})
@@ -437,7 +437,6 @@ exports.restoreUser = async (req, res) => {
     }
   };
 
-
   exports.updateOnboarding = async (req, res) => {
     try {
       const { gender, avatar, hasCompletedOnboarding } = req.body;
@@ -491,4 +490,6 @@ exports.restoreUser = async (req, res) => {
       });
     }
   };
+  
+
   

@@ -342,80 +342,80 @@ exports.checkAccountStatus = async (req, res) => {
  * Request a new reactivation token for an auto-deactivated account
  * @route POST /api/auth/request-reactivation
  */
-exports.requestReactivation = async (req, res) => {
-  try {
-    const { email } = req.body;
+// exports.requestReactivation = async (req, res) => {
+//   try {
+//     const { email } = req.body;
 
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: "Email is required"
-      });
-    }
+//     if (!email) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Email is required"
+//       });
+//     }
 
-    // Find the auto-deactivated user directly from MongoDB
-    const db = mongoose.connection.db;
-    const usersCollection = db.collection('users');
-    const user = await usersCollection.findOne({ 
-      email: email,
-      isAutoDeactivated: true 
-    });
+//     // Find the auto-deactivated user directly from MongoDB
+//     const db = mongoose.connection.db;
+//     const usersCollection = db.collection('users');
+//     const user = await usersCollection.findOne({ 
+//       email: email,
+//       isAutoDeactivated: true 
+//     });
     
-    // For security, don't reveal if user exists or not
-    if (!user) {
-      return res.status(200).json({
-        success: true,
-        message: "If your account exists and is deactivated, a reactivation email will be sent."
-      });
-    }
+//     // For security, don't reveal if user exists or not
+//     if (!user) {
+//       return res.status(200).json({
+//         success: true,
+//         message: "If your account exists and is deactivated, a reactivation email will be sent."
+//       });
+//     }
 
-    // Generate a new reactivation token
-    const reactivationToken = crypto.randomBytes(32).toString("hex");
+//     // Generate a new reactivation token
+//     const reactivationToken = crypto.randomBytes(32).toString("hex");
     
-    // Update user with new token
-    await usersCollection.updateOne(
-      { _id: user._id },
-      { 
-        $set: {
-          reactivationToken: reactivationToken,
-          reactivationTokenExpires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
-          lastReactivationAttempt: new Date(),
-          reactivationAttempts: (user.reactivationAttempts || 0) + 1
-        }
-      }
-    );
+//     // Update user with new token
+//     await usersCollection.updateOne(
+//       { _id: user._id },
+//       { 
+//         $set: {
+//           reactivationToken: reactivationToken,
+//           reactivationTokenExpires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
+//           lastReactivationAttempt: new Date(),
+//           reactivationAttempts: (user.reactivationAttempts || 0) + 1
+//         }
+//       }
+//     );
 
-    // Create a user object for the email service
-    const userForEmail = {
-      _id: user._id,
-      email: user.email,
-      firstName: user.firstName || 'User',
-      lastName: user.lastName || ''
-    };
+//     // Create a user object for the email service
+//     const userForEmail = {
+//       _id: user._id,
+//       email: user.email,
+//       firstName: user.firstName || 'User',
+//       lastName: user.lastName || ''
+//     };
 
-    // Send reactivation email
-    const emailService = require('../utils/emailService');
-    try {
-      await emailService.sendAutoDeactivationEmail(userForEmail, reactivationToken);
-      console.log(`Reactivation email sent to ${email}`);
-    } catch (emailError) {
-      console.error("Error sending reactivation email:", emailError);
-      // Continue even if email fails
-    }
+//     // Send reactivation email
+//     const emailService = require('../utils/emailService');
+//     try {
+//       await emailService.sendReactivationConfirmationEmail(userForEmail, reactivationToken);
+//       console.log(`Reactivation email sent to ${email}`);
+//     } catch (emailError) {
+//       console.error("Error sending reactivation email:", emailError);
+//       // Continue even if email fails
+//     }
 
-    res.status(200).json({
-      success: true,
-      message: "If your account exists and is deactivated, a reactivation email has been sent."
-    });
-  } catch (error) {
-    console.error("Reactivation request error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message
-    });
-  }
-};
+//     res.status(200).json({
+//       success: true,
+//       message: "If your account exists and is deactivated, a reactivation email has been sent."
+//     });
+//   } catch (error) {
+//     console.error("Reactivation request error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: error.message
+//     });
+//   }
+// };
 
 /**
  * Debug function to get information about auto-deactivated accounts

@@ -862,7 +862,11 @@ exports.forgotPassword = async (req, res) => {
 exports.resetPassword = async (req, res) => {
   try {
     const { token, newPassword } = req.body;
-
+    
+    console.log("Reset password request received:");
+    console.log("- Token length:", token?.length);
+    console.log("- Token value:", token); // Log the actual token for debugging
+    
     if (!token || !newPassword) {
       return res.status(400).json({ 
         success: false, 
@@ -870,43 +874,140 @@ exports.resetPassword = async (req, res) => {
       });
     }
 
-    // Find user with matching token and check token expiration
-    const user = await User.findOne({
-      resetPasswordToken: token,
-      resetPasswordExpires: { $gt: Date.now() }
+    // First try to find the user with the token, regardless of expiration
+    const userWithToken = await User.findOne({
+      resetPasswordToken: token
     });
-
-    if (!user) {
+    
+    if (!userWithToken) {
+      console.log("No user found with this token");
       return res.status(400).json({
         success: false,
-        message: "Password reset token is invalid or has expired."
+        message: "Password reset token is invalid or has expired.",
+        details: "Token not found in database"
+      });
+    }
+    
+    // Now check expiration separately for better debugging
+    if (userWithToken.resetPasswordExpires < Date.now()) {
+      console.log("Token found but expired:");
+      console.log("- Token expiration:", new Date(userWithToken.resetPasswordExpires));
+      console.log("- Current time:", new Date());
+      console.log("- Difference (ms):", Date.now() - userWithToken.resetPasswordExpires);
+      
+      return res.status(400).json({
+        success: false,
+        message: "Password reset token is invalid or has expired.",
+        details: "Token has expired",
+        expired: true
       });
     }
 
+    // Validation passed - token is valid and not expired
+    console.log("Valid token found for user:", userWithToken.email);
+    
+    // Password requirements validation
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters long."
+      });
+    }
+    
     // Hash the new password using bcrypt
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    user.password = hashedPassword;
+    userWithToken.password = hashedPassword;
+    
     // Clear the reset token fields
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpires = undefined;
+    userWithToken.resetPasswordToken = undefined;
+    userWithToken.resetPasswordExpires = undefined;
+    
     // Update last activity
-    user.lastActivity = new Date();
-    await user.save();
+    userWithToken.lastActivity = new Date();
+    await userWithToken.save();
 
     // Optionally generate a new JWT for immediate login
-    const { accessToken } = generateTokens(user, res);
+    const { accessToken, refreshToken } = generateTokens(userWithToken, res);
 
     res.json({
       success: true,
       message: "Password has been successfully reset.",
-      accessToken
+      accessToken,
+      refreshToken,
+      email: userWithToken.email
     });
   } catch (error) {
     console.error("Reset password error:", error);
     res.status(500).json({ 
       success: false, 
-      message: "Server error", 
+      message: "Server error during password reset", 
       error: error.message 
+    });
+  }
+};
+
+exports.getDeactivatedUsers = async (req, res) => {
+  try {
+    console.log('Processing request for deactivated users');
+    
+    // This query explicitly asks for deactivated users, bypassing the middleware
+    const deactivatedUsers = await User.find({ isDeactivated: true })
+      .select('-password')
+      .sort({ deactivatedAt: -1 });
+    
+    console.log(`Found ${deactivatedUsers.length} deactivated users`);
+    
+    // Also check for auto-deactivated users
+    const autoDeactivatedUsers = await User.find({ isAutoDeactivated: true })
+      .select('-password')
+      .sort({ autoDeactivatedAt: -1 });
+    
+    console.log(`Found ${autoDeactivatedUsers.length} auto-deactivated users`);
+    
+    // Check for users with deleted/deactivated status but not marked as deactivated
+    const statusDeactivatedUsers = await User.find({
+      $or: [
+        { status: 'deleted' },
+        { status: 'deactivated' },
+        { status: 'inactive' }
+      ],
+      isDeactivated: { $ne: true },
+      isAutoDeactivated: { $ne: true }
+    })
+    .select('-password');
+    
+    console.log(`Found ${statusDeactivatedUsers.length} users with deactivated status`);
+    
+    // Combine all types of deactivated users
+    const allDeactivatedUsers = [
+      ...deactivatedUsers,
+      ...autoDeactivatedUsers,
+      ...statusDeactivatedUsers
+    ];
+    
+    // Remove duplicates by ID
+    const uniqueUsers = Array.from(
+      new Map(allDeactivatedUsers.map(user => [user._id.toString(), user])).values()
+    );
+    
+    console.log(`Returning ${uniqueUsers.length} unique deactivated users`);
+    
+    res.json({
+      success: true,
+      users: uniqueUsers,
+      counts: {
+        deactivated: deactivatedUsers.length,
+        autoDeactivated: autoDeactivatedUsers.length,
+        statusDeactivated: statusDeactivatedUsers.length,
+        total: uniqueUsers.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching deactivated users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching deactivated users',
+      error: error.message
     });
   }
 };

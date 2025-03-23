@@ -7,7 +7,7 @@ const {
   updateUserProfile, 
   changePassword, 
   softDeleteUser, 
-  getAllUsersWithDeleted,
+  getAllDeactivated,
   restoreUser,
   deleteAllUsers,
   updateOnboarding  // Add the new onboarding function
@@ -36,7 +36,7 @@ router.put('/:id/password', authMiddleware, changePassword);
 router.delete('/:id', authMiddleware, softDeleteUser);
 
 // Admin routes
-router.get('/all', authMiddleware, adminMiddleware, getAllUsersWithDeleted);
+router.get('/all', authMiddleware, adminMiddleware, getAllDeactivated);
 router.put('/:id/restore', authMiddleware, adminMiddleware, restoreUser);
 
 module.exports = router;

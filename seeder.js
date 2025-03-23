@@ -1,4 +1,4 @@
-// complete-user-seeder.js
+// complete-user-seeder.js - Enhanced version without inactive users
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
@@ -18,162 +18,93 @@ const User = require('./models/User');
 const SEED_CONFIG = {
   totalUsers: 55,
   adminCount: 5,
-  password: 'Admin@123',
-  visitPatterns: {
-    daily: { weight: 0.2, maxVisits: 90 },
-    weekly: { weight: 0.3, maxVisits: 24 },
-    monthlySpike: { weight: 0.3, maxVisits: 18 },
-    biWeekly: { weight: 0.1, maxVisits: 12 },
-    random: { weight: 0.1, maxVisits: 30 }
-  }
+  password: 'Admin@123'
 };
 
 // Helper functions
 const randomDate = (start, end) => new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
 const getRandomItem = (array) => array[Math.floor(Math.random() * array.length)];
-const addRandomTime = (date) => {
-  date.setHours(Math.floor(Math.random() * 24));
-  date.setMinutes(Math.floor(Math.random() * 60));
-  date.setSeconds(Math.floor(Math.random() * 60));
-};
-
-// Visit pattern generator
-const generateVisits = (user, now) => {
-  const visits = [];
-  const pattern = weightedRandom(SEED_CONFIG.visitPatterns);
-  const createdAt = user.createdAt;
-  const thirtyDaysAgo = new Date(now);
-  thirtyDaysAgo.setDate(now.getDate() - 30);
-  const startDate = new Date(Math.max(createdAt.getTime(), thirtyDaysAgo.getTime()));
-  const endDate = now;
-
-  let visitCount;
-  switch(pattern) {
-    case 'daily':
-      visitCount = Math.min(Math.floor((endDate - startDate) / 86400000), SEED_CONFIG.visitPatterns.daily.maxVisits);
-      for(let i = 0; i < visitCount; i++) {
-        const visitDate = new Date(startDate.getTime() + (i * 86400000));
-        visits.push({ userId: user._id, visitDate });
-      }
-      break;
-
-    case 'weekly':
-      visitCount = Math.min(Math.floor((endDate - startDate) / 604800000), SEED_CONFIG.visitPatterns.weekly.maxVisits);
-      for(let i = 0; i < visitCount; i++) {
-        const visitDate = new Date(startDate.getTime() + (i * 604800000));
-        addRandomTime(visitDate);
-        visits.push({ userId: user._id, visitDate });
-      }
-      break;
-
-    case 'monthlySpike':
-      const monthsDiff = endDate.getMonth() - startDate.getMonth() + 
-        (12 * (endDate.getFullYear() - startDate.getFullYear()));
-      visitCount = Math.min(monthsDiff, SEED_CONFIG.visitPatterns.monthlySpike.maxVisits);
-      for(let i = 0; i < visitCount; i++) {
-        const monthStart = new Date(startDate);
-        monthStart.setMonth(startDate.getMonth() + i);
-        const spikeDate = randomDate(monthStart, new Date(monthStart).setDate(28));
-        [0, 2, 4].forEach(hours => {
-          const visit = new Date(spikeDate);
-          visit.setHours(visit.getHours() + hours);
-          visits.push({ userId: user._id, visitDate: visit });
-        });
-      }
-      break;
-
-    case 'biWeekly':
-      visitCount = Math.min(Math.floor((endDate - startDate) / 1209600000), SEED_CONFIG.visitPatterns.biWeekly.maxVisits);
-      for(let i = 0; i < visitCount; i++) {
-        const visitDate = new Date(startDate.getTime() + (i * 1209600000));
-        addRandomTime(visitDate);
-        visits.push({ userId: user._id, visitDate });
-      }
-      break;
-
-    default: // random
-      visitCount = Math.floor(Math.random() * SEED_CONFIG.visitPatterns.random.maxVisits) + 1;
-      for(let i = 0; i < visitCount; i++) {
-        visits.push({ 
-          userId: user._id, 
-          visitDate: randomDate(startDate, endDate)
-        });
-      }
-  }
-  return visits;
-};
-
-const weightedRandom = (patterns) => {
-  const totalWeight = Object.values(patterns).reduce((sum, p) => sum + p.weight, 0);
-  let random = Math.random() * totalWeight;
-  for(const [pattern, config] of Object.entries(patterns)) {
-    if(random < config.weight) return pattern;
-    random -= config.weight;
-  }
-  return Object.keys(patterns)[0];
-};
 
 // Main seeder function
 const seedUsers = async () => {
   try {
-    // Cleanup previous seeded data
-    const existingSeeded = await User.find({ email: { $regex: /@gmail\.com$/ } });
-    const seededIds = existingSeeded.map(u => u._id);
+    console.log('🔍 Checking for existing users before seeding...');
     
-    await mongoose.model('Visit').deleteMany({ userId: { $in: seededIds } });
-    await User.deleteMany({ _id: { $in: seededIds } });
-    console.log(`Cleared ${existingSeeded.length} previous seeded users`);
+    // Get count of all existing users for statistics
+    const totalExistingUserCount = await User.countDocuments({});
+    console.log(`Found ${totalExistingUserCount} total users in database`);
+    
+    // Cleanup previous seeded data - now using a special flag
+    // First, add the 'isSeeded' flag to all existing seeded users that don't have it
+    // This is for backwards compatibility with your previous seeder versions
+    await User.updateMany(
+      { email: { $regex: /@gmail\.com$/ }, isSeeded: { $ne: true } },
+      { $set: { isSeeded: true } }
+    );
+    
+    // Now delete all users marked as seeded
+    const deletedUsers = await User.deleteMany({ isSeeded: true });
+    console.log(`Cleared ${deletedUsers.deletedCount} previously seeded users`);
 
     // Seed new data
     const now = new Date();
     const sixMonthsAgo = new Date(now);
     sixMonthsAgo.setMonth(now.getMonth() - 6);
     
-    const visitStats = {
-      total: 0,
-      monthly: new Map(),
-      patterns: new Map()
-    };
+    // Sample name arrays
+    const firstNames = ['John', 'Jane', 'Michael', 'Sarah', 'David', 'Emily', 
+                        'Robert', 'Lisa', 'William', 'Jessica', 'James', 'Jennifer',
+                        'Joseph', 'Amanda', 'Charles', 'Ashley', 'Thomas', 'Megan',
+                        'Daniel', 'Elizabeth'];
+                        
+    const lastNames = ['Smith', 'Johnson', 'Brown', 'Jones', 'Miller', 'Davis', 
+                      'Wilson', 'Anderson', 'Taylor', 'Thomas', 'Moore', 'Martin',
+                      'Jackson', 'Thompson', 'White', 'Harris', 'Clark', 'Lewis',
+                      'Robinson', 'Walker'];
+
+    const genders = ['male', 'female', 'prefer-not-to-say'];
+    
+    // User creation counter
+    let createdUsers = 0;
 
     for(let i = 0; i < SEED_CONFIG.totalUsers; i++) {
       const isAdmin = i < SEED_CONFIG.adminCount;
-      const firstName = getRandomItem(['John', 'Jane', /*...*/]);
-      const lastName = getRandomItem(['Smith', 'Johnson', /*...*/]);
+      const firstName = getRandomItem(firstNames);
+      const lastName = getRandomItem(lastNames);
+      const gender = getRandomItem(genders);
       
       const user = new User({
         firstName,
         lastName,
-        email: `${firstName.toLowerCase()}${lastName.toLowerCase()}${Math.floor(Math.random() * 1000)}@gmail.com`,
+        email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${Math.floor(Math.random() * 1000)}@gmail.com`,
         password: await bcrypt.hash(SEED_CONFIG.password, await bcrypt.genSalt(10)),
-        // ... other user properties ...
-        createdAt: randomDate(sixMonthsAgo, now)
+        gender,
+        role: isAdmin ? 'admin' : 'user',
+        isVerified: true,
+        avatar: `avatar-${Math.floor(Math.random() * 8) + 1}`, // Assuming you have avatar-1 through avatar-8
+        lastLogin: randomDate(sixMonthsAgo, now),
+        lastActivity: randomDate(sixMonthsAgo, now),
+        createdAt: randomDate(sixMonthsAgo, now),
+        isSeeded: true // This is the special flag to mark seeded users
       });
 
       await user.save();
+      createdUsers++;
       
-      // Generate visits
-      if(!user.isDeactivated && !user.isAutoDeactivated) {
-        const visits = generateVisits(user, now);
-        visitStats.total += visits.length;
-        
-        visits.forEach(v => {
-          const month = v.visitDate.getMonth() + 1;
-          visitStats.monthly.set(month, (visitStats.monthly.get(month) || 0) + 1);
-        });
-        
-        await mongoose.model('Visit').insertMany(visits);
-      }
+      // The code that set some users as inactive/auto-deactivated has been removed
     }
+    
+    // Count non-seeded users (real users)
+    const manualUserCount = await User.countDocuments({ isSeeded: { $ne: true } });
 
-    // Display statistics
-    console.log('\n📊 Visit Statistics:');
-    console.log(`Total Visits: ${visitStats.total}`);
-    console.log('Monthly Distribution:');
-    Array.from(visitStats.monthly.entries()).forEach(([month, count]) => {
-      console.log(`- Month ${month}: ${count} visits`);
-    });
+    console.log(`\n✅ Successfully created ${createdUsers} seeded users!`);
+    console.log(`- Including ${SEED_CONFIG.adminCount} admin users`);
+    console.log(`- Your database now has ${manualUserCount} real (manually registered) users`);
+    console.log(`- Total users in database: ${manualUserCount + createdUsers}`);
+    console.log('- All seeded users are active (no auto-deactivated users)');
 
     mongoose.disconnect();
+    console.log('Database connection closed.');
   } catch(error) {
     console.error('Seeding error:', error);
     process.exit(1);
