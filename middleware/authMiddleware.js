@@ -1,8 +1,14 @@
-// Improved auth middleware
+// middleware/authMiddleware.js
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
 module.exports = async (req, res, next) => {
+  // Reuse the mobile detection function from authController
+  const isMobileRequest = (req) => {
+    return req.get('x-client-type') === 'mobile' || req.body.clientType === 'mobile';
+  };
+  const mobile = isMobileRequest(req);
+
   // Define public routes that don't need auth
   const publicRoutes = [
     '/api/auth/login',
@@ -57,16 +63,20 @@ module.exports = async (req, res, next) => {
 
     // Set user data on request
     req.user = {
-      id: user._id,  // Change userId to id
+      id: user._id,  
       userId: user._id,  // Keep this for backward compatibility
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
       role: user.role,
-      isVerified: user.isVerified
+      isVerified: user.isVerified,
+      lastActivity: new Date()
     };
+    
+    // Update lastActivity in database
+    await User.findByIdAndUpdate(user._id, { lastActivity: new Date() });
 
-    // Try to refresh token if it's close to expiring
+    // Token refresh logic with mobile support
     const tokenExp = decoded.exp * 1000;
     const now = Date.now();
     const fiveMinutes = 5 * 60 * 1000;
@@ -79,15 +89,21 @@ module.exports = async (req, res, next) => {
           { expiresIn: '1h' }
         );
 
-        res.cookie('token', newToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 3600000 // 1 hour
-        });
+        if (!mobile) {
+          // For web: Set cookie
+          res.cookie('token', newToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 3600000 // 1 hour
+          });
+        }
         
-        // Also set header for frontend to capture
+        // For both web and mobile: Set header
         res.setHeader('X-New-Token', newToken);
+        
+        // For mobile: Store in res.locals to include in response
+        res.locals.newToken = newToken;
       } catch (refreshError) {
         console.error("Token refresh failed:", refreshError);
       }

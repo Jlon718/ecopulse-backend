@@ -4,9 +4,10 @@ const jwt = require("jsonwebtoken");
  * Generate access and refresh tokens for a user
  * @param {Object} user - User document from MongoDB
  * @param {Object} res - Express response object for setting cookies
+ * @param {Boolean} isMobile - Flag to indicate if request is from mobile app
  * @return {Object} Object containing tokens
  */
-const generateTokens = (user, res = null) => {
+const generateTokens = (user, res = null, isMobile = false) => {
   console.log("=== GENERATING TOKENS ===");
   console.log("User input:", {
     id: user._id,
@@ -15,6 +16,7 @@ const generateTokens = (user, res = null) => {
   
   console.log("JWT_SECRET available:", process.env.JWT_SECRET ? "Yes" : "No");
   console.log("JWT_REFRESH_SECRET available:", process.env.JWT_REFRESH_SECRET ? "Yes" : "No");
+  console.log("Is mobile request:", isMobile ? "Yes" : "No");
   
   if (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET) {
     console.error("ERROR: JWT secret keys are missing in environment variables!");
@@ -58,9 +60,9 @@ const generateTokens = (user, res = null) => {
   
   console.log("Refresh token generated");
   
-  // Set cookies if response object is provided
-  if (res) {
-    console.log("Setting cookies");
+  // Set cookies if response object is provided AND not mobile request
+  if (res && !isMobile) {
+    console.log("Setting cookies (web client)");
     
     // Set access token cookie
     res.cookie("token", accessToken, {
@@ -79,6 +81,8 @@ const generateTokens = (user, res = null) => {
     });
     
     console.log("Cookies set successfully");
+  } else if (isMobile) {
+    console.log("Mobile client - tokens will be sent in response body");
   } else {
     console.log("No response object provided, skipping cookie setting");
   }

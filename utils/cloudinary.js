@@ -14,8 +14,11 @@ const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'ecopulse_avatars',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'gif'],
-    transformation: [{ width: 500, height: 500, crop: 'limit' }]
+    allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'svg'],
+    transformation: [
+      { width: 500, height: 500, crop: 'limit' },
+      { fetch_format: 'auto', quality: 'auto' }
+    ]
   }
 });
 

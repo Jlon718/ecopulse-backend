@@ -155,36 +155,98 @@ const sendGoogleVerificationEmail = async (user) => {
 };
 
 // New function for sending password reset email
-const sendPasswordResetEmail = async (user, token) => {
+const sendPasswordResetEmail = async (user, token, platform = 'unknown') => {
   try {
+    // Validate configuration
     if (!process.env.EMAIL_FROM || !process.env.EMAIL_USER) {
       throw new Error('Email configuration is missing');
     }
-    
-    // Use environment variable for the frontend URL
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const resetUrl = `${baseUrl}/reset-password?token=${token}`;
 
-    console.log('Attempting to send password reset email...');
+    // Generate links
+    const webBaseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const webResetUrl = `${webBaseUrl}/reset-password?token=${token}`;
+    const appSchemeUrl = `ecopulse://reset-password?token=${token}`;
+    const universalLink = process.env.UNIVERSAL_LINK_DOMAIN 
+      ? `https://${process.env.UNIVERSAL_LINK_DOMAIN}/reset-password?token=${token}`
+      : webResetUrl;
+
+    // Platform detection
+    const isMobile = ['android', 'ios'].includes(platform.toLowerCase());
+    
+    // Email template
+    const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+      <!-- Header -->
+      <div style="text-align: center; margin-bottom: 20px;">
+        <img src="${process.env.LOGO_URL}" alt="Company Logo" style="max-width: 150px;">
+      </div>
+
+      <!-- Main Content -->
+      <h2 style="color: #4CAF50; text-align: center;">Password Reset Request</h2>
+      <p>Hello ${user.name || 'there'},</p>
+      <p>We received a password reset request. Use the button below within 1 hour:</p>
+
+      <!-- Reset Button -->
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${isMobile ? appSchemeUrl : webResetUrl}" 
+           style="background-color: #4CAF50; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+          Reset Password
+        </a>
+      </div>
+
+      <!-- Token Section -->
+      <div style="background-color: #f5f5f5; border-radius: 4px; padding: 15px;">
+        <p style="margin-bottom: 15px;">Or manually copy this security token:</p>
+        
+        <!-- Copy Container -->
+        <div style="display: flex; gap: 10px; align-items: center; background-color: white; border: 1px solid #ddd; border-radius: 4px; padding: 10px;">
+          <code style="flex-grow: 1; font-family: monospace; word-break: break-all;">${token}</code>
+          
+          <!-- Copy Button -->
+          
+        </div>
+
+        <!-- Fallback Instructions -->
+        <p style="font-size: 0.9em; color: #666; margin-top: 15px;">
+          Can't copy? Select the token text manually and use Ctrl+C (Windows) or Command+C (Mac)
+        </p>
+      </div>
+
+      <!-- Footer -->
+      <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+        <p style="color: #666; font-size: 0.9em;">
+          Not expecting this email? You can safely ignore it.
+        </p>
+      </div>
+    </div>
+    `;
+
+    // Send email
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM,
+      from: `EcoPulse Support <${process.env.EMAIL_FROM}>`,
       to: user.email,
-      subject: 'Reset Your Password - EcoPulse',
-      html: getResetEmailTemplate(resetUrl)
+      subject: 'Password Reset Instructions',
+      html: html,
+      text: `Please use this link to reset your password: ${isMobile ? appSchemeUrl : webResetUrl}\nOr use this token: ${token}`
     });
 
-    console.log('Password reset email sent successfully:', {
+    console.log(`Password reset email sent to ${user.email}`, {
       messageId: info.messageId,
-      recipient: user.email
+      platform,
+      deliveryTime: new Date().toISOString()
     });
 
     return { success: true, messageId: info.messageId };
+
   } catch (error) {
-    console.error('Error sending password reset email:', error);
-    throw new Error(`Failed to send password reset email: ${error.message}`);
+    console.error('Password reset email failure:', {
+      error: error.message,
+      user: user.email,
+      timestamp: new Date().toISOString()
+    });
+    throw new Error('Failed to send password reset email. Please try again later.');
   }
 };
-
 // Account recovery email
 const sendAccountRecoveryEmail = async (user, token) => {
   try {
@@ -399,7 +461,7 @@ const sendReactivationTokenEmail = async (user, reactivationToken) => {
     throw new Error(`Failed to send reactivation token email: ${error.message}`);
   }
 };
-const sendDeactivatedAccountLoginAttemptEmail = async (user) => {
+const sendDeactivatedLoginAttempt = async (user) => {
   try {
     console.log('Starting admin notification for deactivated account login:', user.email);
     
@@ -578,6 +640,6 @@ module.exports = {
   sendAutoDeactivationEmail,
   sendReactivationConfirmationEmail,
   sendAdminNotification,
-  sendDeactivatedAccountLoginAttemptEmail,
+  sendDeactivatedLoginAttempt,
   sendReactivationTokenEmail  
 };
