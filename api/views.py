@@ -40,8 +40,13 @@ def get_renewable_energy_predictions(request, target):
         # Get predictions for the specified target
         predictions = get_predictions(target, start_year, end_year)
         
-        # Convert the DataFrame to a dictionary for JSON response
-        predictions_dict = predictions.to_dict(orient='records')
+        # Check if predictions is a DataFrame (old format) or list (new format)
+        if hasattr(predictions, 'to_dict'):
+            # It's a DataFrame, convert to list of dicts
+            predictions_dict = predictions.to_dict(orient='records')
+        else:
+            # It's already a list of dictionaries
+            predictions_dict = predictions
         
         return JsonResponse({
             'status': 'success',
@@ -50,10 +55,31 @@ def get_renewable_energy_predictions(request, target):
         })
     except Exception as e:
         logger.error(f"Error in get_renewable_energy_predictions: {e}")
-        return JsonResponse({
-            'status': 'error',
-            'message': str(e)
-        }, status=500)
+        # Try to get just the database records without predictions
+        try:
+            collection = connect_to_mongodb()
+            query = {"Year": {"$gte": start_year, "$lte": end_year}}
+            data = list(collection.find(query))
+            
+            # Process data for the response
+            processed_data = []
+            for item in data:
+                if '_id' in item:
+                    # Convert ObjectId to string
+                    item['_id'] = str(item['_id'])
+                processed_data.append(item)
+                
+            return JsonResponse({
+                'status': 'partial_success',
+                'message': 'Error in prediction model, returning available database records',
+                'target': target,
+                'predictions': processed_data
+            })
+        except Exception as inner_e:
+            return JsonResponse({
+                'status': 'error',
+                'message': f"Original error: {str(e)}. Database fallback error: {str(inner_e)}"
+            }, status=500)
 
 @require_GET
 def peertopeer_predictions(request):
@@ -123,10 +149,29 @@ class CreateView(View):
         try:
             data = json.loads(request.body)
             create(data)
-            return JsonResponse({'status': 'success', 'message': 'Data inserted successfully'})
+            
+            # Train models after successful data creation
+            try:
+                from linearregression_predictiveanalysis import train_and_save_models
+                logger.info("Training models after new data creation...")
+                train_result = train_and_save_models()
+                
+                return JsonResponse({
+                    'status': 'success', 
+                    'message': 'Data inserted successfully and models trained',
+                    'training_result': train_result
+                })
+            except Exception as train_error:
+                logger.error(f"Data inserted but model training failed: {train_error}")
+                return JsonResponse({
+                    'status': 'partial_success',
+                    'message': 'Data inserted successfully but model training failed',
+                    'training_error': str(train_error)
+                })
+                
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
-        
+
 @method_decorator(csrf_exempt, name='dispatch')
 class CreateViewPeertoPeer(View):
     def post(self, request):
@@ -187,7 +232,26 @@ def update_record(request, year):
             return JsonResponse({'status': 'error', 'message': 'Record not found'}, status=404)
         
         logger.info(f"Record updated successfully for Year: {year}")
-        return JsonResponse({'status': 'success', 'message': 'Record updated successfully'})
+        
+        # Train models after successful update
+        try:
+            from linearregression_predictiveanalysis import train_and_save_models
+            logger.info("Training models after data update...")
+            train_result = train_and_save_models()
+            
+            return JsonResponse({
+                'status': 'success', 
+                'message': 'Record updated successfully and models trained',
+                'training_result': train_result
+            })
+        except Exception as train_error:
+            logger.error(f"Record updated but model training failed: {train_error}")
+            return JsonResponse({
+                'status': 'partial_success',
+                'message': 'Record updated successfully but model training failed',
+                'training_error': str(train_error)
+            })
+            
     except Exception as e:
         logger.error(f"Error updating record: {e}")
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
@@ -571,5 +635,28 @@ def recommendation_record_detail(request, record_id):
         # Return error response
         return JsonResponse({
             'status': 'error',
-            'message': str(e)
+            'message': str(e)}
+        , status=500)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def train_models(request):
+    """
+    API endpoint to train and save machine learning models for prediction.
+    """
+    try:
+        from linearregression_predictiveanalysis import train_and_save_models
+        
+        result = train_and_save_models()
+        
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Models trained and saved successfully',
+            'models': result
+        })
+    except Exception as e:
+        logger.error(f"Error in train_models: {e}")
+        return JsonResponse({
+            'status': 'error',
+            'message': f"Error training models: {str(e)}"
         }, status=500)
